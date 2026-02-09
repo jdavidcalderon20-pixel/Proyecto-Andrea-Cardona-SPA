@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel - Andrea Cardona SPA</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
+    <style>
+        :root {
+            --spa-green: #8fb996;
+            --spa-green-dark: #6b9578;
+            --spa-gold: #d4af37;
+            --background: #fafafa;
+            --sidebar-width: 280px;
+        }
+        body { background-color: var(--background); display: flex; font-family: 'Inter', sans-serif; color: #2c3e50; }
+        
+        /* Sidebar */
+        .sidenav { width: var(--sidebar-width); background-color: #fff; border-right: 1px solid #eee; }
+        .brand-sidebar { padding: 30px 20px; border-bottom: 1px solid #f0f0f0; }
+        .brand-sidebar h5 { margin: 0; font-weight: bold; color: var(--spa-green-dark); font-size: 1.4rem; }
+        .brand-sidebar p { margin: 0; color: var(--spa-gold); font-size: 0.85rem; }
+        
+        .sidenav li a { color: #546e7a !important; font-weight: 500; display: flex; align-items: center; }
+        .sidenav li.active { background-color: #f1f8f3; border-right: 4px solid var(--spa-green); }
+        .sidenav li.active a { color: var(--spa-green-dark) !important; }
+        .sidenav li.active a i { color: var(--spa-green-dark) !important; }
+
+        /* Contenido */
+        main { padding-left: var(--sidebar-width); width: 100%; transition: 0.3s; }
+        .content-container { width: 92%; margin: 30px auto; }
+        
+        /* Componentes de Diseño */
+        .card-panel { border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.05) !important; }
+        .kpi-card { border-top: 4px solid var(--spa-gold); }
+        .badge-status { padding: 5px 12px; border-radius: 20px; font-weight: 600; font-size: 0.75rem; }
+        .btn-spa { background-color: var(--spa-green) !important; border-radius: 8px; text-transform: none; }
+        
+        /* Terapeutas Avatar */
+        .avatar-circle { width: 45px; height: 45px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+        
+        @media only screen and (max-width : 992px) { main { padding-left: 0; } }
+    </style>
+</head>
+<body>
+
+    <ul id="slide-out" class="sidenav sidenav-fixed">
+        <div class="brand-sidebar">
+            <h5>Andrea Cardona SPA</h5>
+            <p>Centro de Belleza y Bienestar</p>
+        </div>
+        <li class="menu-item active" id="menu-dashboard"><a href="#!" onclick="navigate('dashboard')"><i class="material-icons">dashboard</i>Panel Principal</a></li>
+        <li class="menu-item" id="menu-citas"><a href="#!" onclick="navigate('citas')"><i class="material-icons">event</i>Citas</a></li>
+        <li class="menu-item" id="menu-clientes"><a href="#!" onclick="navigate('clientes')"><i class="material-icons">people</i>Clientes</a></li>
+        <li class="menu-item" id="menu-servicios"><a href="#!" onclick="navigate('servicios')"><i class="material-icons">spa</i>Servicios</a></li>
+        <li class="menu-item" id="menu-terapeutas"><a href="#!" onclick="navigate('terapeutas')"><i class="material-icons">assignment_ind</i>Terapeutas</a></li>
+        <li class="menu-item" id="menu-pagos"><a href="#!" onclick="navigate('pagos')"><i class="material-icons">payments</i>Pagos</a></li>
+        <li class="divider"></li>
+        <li><a href="interfaz_spa.html"><i class="material-icons">logout</i>Cerrar Sesión</a></li>
+    </ul>
+
+    <main>
+        <div class="content-container" id="main-content">
+            </div>
+    </main>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+    <script>
+        function navigate(view) {
+            const container = document.getElementById('main-content');
+            document.querySelectorAll('.menu-item').forEach(li => li.classList.remove('active'));
+            document.getElementById(`menu-${view}`).classList.add('active');
+
+            let content = "";
+
+            switch(view) {
+                case 'dashboard':
+                    content = `
+                    <h4>Panel Principal</h4>
+                    <p class="grey-text">¡Bienvenido de vuelta! Aquí está lo que sucede hoy.</p>
+                    <div class="row">
+                        <div class="col s12 m3"><div class="card-panel center kpi-card"><h3>12</h3><p>Citas de Hoy</p></div></div>
+                        <div class="col s12 m3"><div class="card-panel center kpi-card"><h3>8</h3><p>Nuevos Clientes</p></div></div>
+                        <div class="col s12 m3"><div class="card-panel center kpi-card"><h3>$1,245</h3><p>Ingresos Hoy</p></div></div>
+                        <div class="col s12 m3"><div class="card-panel center kpi-card"><h3 class="green-text">+23%</h3><p>Citas Semanales</p></div></div>
+                    </div>
+                    <div class="row">
+                        <div class="col s12 l7">
+                            <div class="card-panel">
+                                <h5>Citas Semanales</h5>
+                                <p class="grey-text">1 feb - 7 feb</p>
+                                <table class="striped">
+                                    <thead><tr><th>Día</th><th>Cita</th><th>Servicio</th></tr></thead>
+                                    <tbody>
+                                        <tr><td>Lun 2</td><td>Emma Wilson (09:00)</td><td>Facial</td></tr>
+                                        <tr><td>Lun 2</td><td>Lisa Brown (11:00)</td><td>Masaje</td></tr>
+                                        <tr><td>Mar 3</td><td>Sarah Davis (10:00)</td><td>Manicure</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="col s12 l5">
+                            <div class="card-panel">
+                                <h5>Precios de Servicios</h5>
+                                <ul class="collection">
+                                    <li class="collection-item">Tratamiento Facial <span class="right">$85</span></li>
+                                    <li class="collection-item">Masaje Corporal <span class="right">$120</span></li>
+                                    <li class="collection-item">Manicure y Pedicure <span class="right">$65</span></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>`;
+                    break;
+
+                case 'citas':
+                    content = `
+                    <div class="row">
+                        <div class="col s12">
+                            <h4>Citas</h4>
+                            <p class="grey-text">Gestiona y visualiza todas las citas programadas</p>
+                            <button class="btn btn-spa waves-effect waves-light"><i class="material-icons left">add</i>Nueva Cita</button>
+                            <div class="card-panel" style="margin-top:20px">
+                                <table class="highlight responsive-table">
+                                    <thead><tr><th>Fecha/Hora</th><th>Cliente</th><th>Servicio</th><th>Terapeuta</th><th>Duración</th><th>Precio</th><th>Estado</th></tr></thead>
+                                    <tbody>
+                                        <tr><td>6 feb 09:00</td><td>Emma Wilson</td><td>Facial</td><td>Sofía Ramírez</td><td>60 min</td><td>$85</td><td><span class="badge-status green white-text">Confirmada</span></td></tr>
+                                        <tr><td>6 feb 13:00</td><td>Mía Rodríguez</td><td>Masaje</td><td>María González</td><td>90 min</td><td>$120</td><td><span class="badge-status orange white-text">Pendiente</span></td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>`;
+                    break;
+
+                case 'clientes':
+                    content = `
+                    <h4>Clientes</h4>
+                    <p class="grey-text">Visualiza y gestiona la información de clientes</p>
+                    <button class="btn btn-spa waves-effect waves-light"><i class="material-icons left">person_add</i>Nuevo Cliente</button>
+                    <div class="row" style="margin-top:20px">
+                        <div class="col s12 m6 l4">
+                            <div class="card-panel">
+                                <h6>Emma Wilson</h6>
+                                <p class="grey-text">emma.w@email.com<br>12 visitas | Registrado: 15 Ene</p>
+                                <button class="btn-flat btn-spa white-text" style="width:100%">Ver Detalles</button>
+                            </div>
+                        </div>
+                        <div class="col s12 m6 l4">
+                            <div class="card-panel">
+                                <h6>Sarah Davis</h6>
+                                <p class="grey-text">sarah.d@email.com<br>8 visitas | Registrado: 22 Ene</p>
+                                <button class="btn-flat btn-spa white-text" style="width:100%">Ver Detalles</button>
+                            </div>
+                        </div>
+                    </div>`;
+                    break;
+
+                case 'servicios':
+                    content = `
+                    <h4>Servicios</h4>
+                    <p class="grey-text">Explora todos los servicios disponibles y sus precios</p>
+                    <button class="btn btn-spa waves-effect waves-light"><i class="material-icons left">add_circle</i>Nuevo Servicio</button>
+                    <div class="row" style="margin-top:20px">
+                        <div class="col s12 l6">
+                            <div class="card-panel">
+                                <h5 class="spa-green-text">Tratamientos Faciales</h5>
+                                <table class="highlight">
+                                    <tr><td>Facial Clásico</td><td>60 min</td><td>$85</td></tr>
+                                    <tr><td>Anti-Edad</td><td>90 min</td><td>$120</td></tr>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="col s12 l6">
+                            <div class="card-panel">
+                                <h5 class="spa-green-text">Masajes Terapéuticos</h5>
+                                <table class="highlight">
+                                    <tr><td>Sueco</td><td>60 min</td><td>$95</td></tr>
+                                    <tr><td>Tejido Profundo</td><td>60 min</td><td>$100</td></tr>
+                                </table>
+                            </div>
+                        </div>
+                    </div>`;
+                    break;
+
+                case 'terapeutas':
+                    content = `
+                    <h4>Terapeutas</h4>
+                    <p class="grey-text">Conoce a nuestro equipo profesional</p>
+                    <div class="row">
+                        <div class="col s12 m6">
+                            <div class="card-panel">
+                                <div style="display:flex; align-items:center; margin-bottom:15px">
+                                    <div class="avatar-circle">MG</div>
+                                    <div style="margin-left:15px"><b>María González</b><br><span class="green-text">Disponible</span></div>
+                                </div>
+                                <p class="grey-text">8 años de experiencia | Masajista Licenciada</p>
+                                <div class="center-align">
+                                    <button class="btn-flat grey lighten-3">Ver Agenda</button>
+                                    <button class="btn-flat grey lighten-3">Editar</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>`;
+                    break;
+
+                case 'pagos':
+                    content = `
+                    <h4>Pagos</h4>
+                    <div class="row">
+                        <div class="col s12 m4"><div class="card-panel center"><h5>$380.00</h5><p>Ingresos Hoy</p></div></div>
+                        <div class="col s12 m4"><div class="card-panel center"><h5>7</h5><p>Pagos Completados</p></div></div>
+                    </div>
+                    <div class="card-panel">
+                        <table class="highlight">
+                            <thead><tr><th>ID</th><th>Fecha</th><th>Cliente</th><th>Monto</th><th>Estado</th></tr></thead>
+                            <tbody>
+                                <tr><td>TRX-001234</td><td>6 feb</td><td>Emma Wilson</td><td>$85</td><td><span class="badge-status green white-text">Completado</span></td></tr>
+                                <tr><td>TRX-001237</td><td>6 feb</td><td>Mía Rodríguez</td><td>$120</td><td><span class="badge-status orange white-text">Pendiente</span></td></tr>
+                            </tbody>
+                        </table>
+                    </div>`;
+                    break;
+            }
+            container.innerHTML = content;
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            M.Sidenav.init(document.querySelectorAll('.sidenav'));
+            navigate('dashboard');
+        });
+    </script>
+</body>
+</html>

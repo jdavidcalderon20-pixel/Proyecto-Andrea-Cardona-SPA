@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Andrea Cardona SPA</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
+    <style>
+        :root {
+            --spa-green: #8fb996;
+            --spa-green-dark: #6b9578;
+            --spa-gold: #d4af37;
+            --background: #fafafa;
+        }
+        body { background-color: var(--background); display: flex; min-height: 100vh; flex-direction: column; justify-content: center; font-family: 'Inter', sans-serif; }
+        .login-card { border-radius: 12px; padding: 40px !important; border-top: 6px solid var(--spa-gold); }
+        .btn { background-color: var(--spa-green); border-radius: 8px; text-transform: none; font-weight: 600; width: 100%; }
+        .btn:hover { background-color: var(--spa-green-dark); }
+        h4 { color: var(--spa-green-dark); font-weight: bold; margin-bottom: 0; }
+        .subtitle { color: var(--spa-gold); font-size: 1.1rem; margin-bottom: 30px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row">
+            <div class="col s12 m6 offset-m3">
+                <div class="card-panel z-depth-2 login-card center-align">
+                    <h4>Andrea Cardona SPA</h4>
+                    <p class="subtitle">Centro de Belleza y Bienestar</p>
+                    <form id="login-form">
+                        <div class="input-field left-align">
+                            <i class="material-icons prefix">person</i>
+                            <input id="email" type="email" value="admin@spa.com" required>
+                            <label for="email">Usuario</label>
+                        </div>
+                        <div class="input-field left-align">
+                            <i class="material-icons prefix">lock</i>
+                            <input id="password" type="password" value="1234" required>
+                            <label for="password">Contraseña</label>
+                        </div>
+                        <button class="btn btn-large waves-effect waves-light" type="submit">Ingresar al Sistema</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        document.getElementById('login-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            window.location.href = 'dashboard_spa.html';
+        });
+    </script>
+</body>
+</html>
