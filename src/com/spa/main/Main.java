@@ -3,6 +3,12 @@ package com.spa.main;
 import com.spa.dao.ClienteDAO;
 import com.spa.modelo.Cliente;
 
+/**
+ * Clase principal del proyecto Andrea Cardona SPA.
+ * Esta clase se encarga de ejecutar las pruebas de persistencia de datos 
+ * utilizando el patrón DAO y la conexión JDBC.
+ * * @author Juan David Cardona
+ */
 public class Main {
     public static void main(String[] args) {
         ClienteDAO dao = new ClienteDAO();
