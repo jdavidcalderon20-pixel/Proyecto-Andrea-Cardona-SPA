@@ -3,11 +3,10 @@ package com.andrea.spa.modulo_web_spa;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = "com.andrea.spa")
 public class ModuloWebSpaApplication {
 
-	public static void main(String[] args) {
-		SpringApplication.run(ModuloWebSpaApplication.class, args);
-	}
-
+    public static void main(String[] args) {
+        SpringApplication.run(ModuloWebSpaApplication.class, args);
+    }
 }
