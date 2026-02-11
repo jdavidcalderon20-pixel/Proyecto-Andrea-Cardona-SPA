@@ -4,6 +4,8 @@ import com.spa.conexion.Conexion;
 import com.spa.modelo.Cliente;
 import java.sql.*;
 
+// Clase que implementa los métodos CRUD (Crear, Leer, Actualizar, Borrar) para la tabla cliente.
+
 public class ClienteDAO {
     
     // 1. Método para INSERTAR (Create)
