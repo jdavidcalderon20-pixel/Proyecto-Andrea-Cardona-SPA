@@ -1,0 +1,11 @@
+PROYECTO: Andrea Cardona SPA - API de Autenticación URL BASE: http://localhost:8090
+
+ENDPOINT 1:
+
+Ruta: /api/auth/login
+
+Método: POST
+
+Descripción: Valida las credenciales de ingreso (usuario y contraseña).
+
+Formato: JSON
