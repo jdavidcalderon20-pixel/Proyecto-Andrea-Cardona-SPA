@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.stream.Collectors;
 
 @RestControllerAdvice
@@ -17,6 +18,13 @@ public class ApiExceptionHandler {
         HttpStatus status = ex.getMessage().contains("ya existe") ? HttpStatus.CONFLICT : HttpStatus.UNAUTHORIZED;
 
         return ResponseEntity.status(status)
+                .body(Map.of("mensaje", ex.getMessage()));
+    }
+
+
+    @ExceptionHandler(NoSuchElementException.class)
+    public ResponseEntity<Map<String, String>> handleNotFound(NoSuchElementException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(Map.of("mensaje", ex.getMessage()));
     }
 
