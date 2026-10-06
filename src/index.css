@@ -233,36 +233,31 @@ input.browser-default:focus, select.browser-default:focus, textarea.browser-defa
   z-index: 10000;
   display: flex;
   justify-content: center;
-  align-items: flex-start;
-  padding: 20px 15px;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  align-items: center;
+  padding: 15px; /* Better padding for mobile */
 }
 
 .luxury-modal-container {
   background-color: #ffffff;
   width: 100%;
-  max-width: 560px;
+  max-width: 600px;
   border-radius: 24px;
   overflow: hidden;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
   position: relative;
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 40px);
-  max-height: calc(100dvh - 40px);
-  margin: auto;
+  max-height: 95vh;
+  max-height: 95dvh;
   border: 1px solid rgba(197, 160, 89, 0.2);
-  animation: modalAppear 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
+  animation: modalAppear 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
 }
 
-.luxury-modal-container form,
-.luxury-modal-body form {
+.luxury-modal-container form {
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-height: 0;
-  overflow: visible !important;
+  overflow: hidden;
 }
 
 @keyframes modalAppear {
@@ -271,23 +266,20 @@ input.browser-default:focus, select.browser-default:focus, textarea.browser-defa
 }
 
 .luxury-modal-header {
-  padding: 18px 24px;
+  padding: 20px 25px;
   border-bottom: 1px solid #f1f5f9;
   display: flex;
   justify-content: space-between;
   align-items: center;
   background: #ffffff;
   z-index: 10;
-  flex-shrink: 0;
+  flex-shrink: 0; /* Evitar que el header se encoja */
 }
 
 .luxury-modal-body {
-  padding: 20px 24px;
-  overflow-y: auto !important;
-  -webkit-overflow-scrolling: touch;
-  flex: 1 1 auto;
-  min-height: 0;
-  overscroll-behavior: contain;
+  padding: 25px;
+  overflow-y: auto;
+  flex: 1;
 }
 
 .luxury-modal-footer {

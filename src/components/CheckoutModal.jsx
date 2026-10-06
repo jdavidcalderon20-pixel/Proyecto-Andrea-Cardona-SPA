@@ -597,24 +597,7 @@ const CheckoutModal = ({ selectedItem, cartItems, setCart, onClose }) => {
             <form onSubmit={handleNextStep}>
               {isCart ? (
                 <div style={{ backgroundColor: '#f9fafb', padding: '15px', borderRadius: '12px', marginBottom: '25px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                    <p style={{ fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 600, margin: 0 }}>
-                      Resumen de Compra ({cartItems.reduce((acc, i) => acc + (parseInt(i.quantity) || 1), 0)} productos)
-                    </p>
-                    <button 
-                      type="button" 
-                      onClick={() => {
-                        if (window.confirm('¿Deseas vaciar todos los productos del carrito?')) {
-                          setCart([]);
-                          if (!selectedItem) onClose();
-                        }
-                      }}
-                      style={{ background: '#fee2e2', border: 'none', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', fontWeight: 600 }}
-                      title="Borrar totalmente el carrito"
-                    >
-                      <Trash2 size={13} /> Vaciar Carrito
-                    </button>
-                  </div>
+                  <p style={{ fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 600, margin: '0 0 10px 0' }}>Resumen de Compra</p>
                   {cartItems.map((item, idx) => (
                     <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', fontSize: '0.95rem', gap: '10px', padding: '10px', backgroundColor: 'white', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
@@ -850,11 +833,7 @@ const CheckoutModal = ({ selectedItem, cartItems, setCart, onClose }) => {
                   />
                   <div style={{ fontSize: '0.82rem', color: '#334155', lineHeight: '1.45' }}>
                     <span>
-                      {isService ? (
-                        <>Autorizo el tratamiento de mis datos personales según la <strong>Ley 1581 de 2012</strong> (Habeas Data) para la gestión de mi reserva, confirmación de cita y envío de recordatorios y novedades por WhatsApp y correo electrónico.{' '}</>
-                      ) : (
-                        <>Autorizo el tratamiento de mis datos personales según la <strong>Ley 1581 de 2012</strong> (Habeas Data) para la facturación, despacho domiciliario de mis productos, confirmación de envío y novedades de la tienda.{' '}</>
-                      )}
+                      Autorizo el tratamiento de mis datos personales según la <strong>Ley 1581 de 2012</strong> (Habeas Data) para la gestión de mi reserva y el envío de novedades, recordatorios y ofertas de fidelización por WhatsApp y correo electrónico.{' '}
                     </span>
                     <button
                       type="button"
