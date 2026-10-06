@@ -3,19 +3,28 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Default Fallback
+    // 1. Catálogo y Configuración (Lectura pública, Escritura Administrador/Staff)
+    match /servicios/{docId} { allow read: if true; allow write: if request.auth != null; }
+    match /productos/{docId} { allow read: if true; allow write: if request.auth != null; }
+    match /cursos/{docId} { allow read: if true; allow write: if request.auth != null; }
+    match /configuracion/{docId} { allow read: if true; allow write: if request.auth != null; }
+
+    // 2. Interacciones Públicas desde la Landing Page
+    match /pedidos/{docId} { allow create: if true; allow read, update, delete: if request.auth != null; }
+    match /citas/{docId} { allow create: if true; allow read, update, delete: if request.auth != null; }
+    match /clientes/{docId} { allow create: if true; allow read, update, delete: if request.auth != null; }
+    match /notificaciones/{docId} { allow create: if true; allow read, update, delete: if request.auth != null; }
+
+    // 3. Gestión de Usuarios y Roles
+    match /usuarios/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // 4. Regla General para Módulos Administrativos (Sesiones, Fichas, Gastos, etc.)
+    // Permite lectura y escritura a cualquier usuario autenticado en el panel
     match /{document=**} {
       allow read, write: if request.auth != null;
     }
-
-    // RBAC Security Rules
-    // Only users with 'admin' role can read or modify the 'usuarios' collection
-    match /usuarios/{userId} {
-      allow read, write: if get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.role == 'admin';
-      
-      // Specifically allow users to read their OWN document even if they are not admin
-      allow read: if request.auth.uid == userId;
-    }
-
   }
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Scissors, Heart, Sparkles, Sun, Droplets, Edit2, Trash2, Camera } from 'lucide-react';
+import { Plus, Search, Scissors, Heart, Sparkles, Sun, Droplets, Edit2, Trash2, Camera, X } from 'lucide-react';
 import { getAllDocuments, createDocument, updateDocument, deleteDocument, uploadImage } from '../services/firebaseUtils';
 
 const getCategoryIcon = (category, size = 20) => {
@@ -25,6 +25,8 @@ const getCategoryBg = (category) => {
 const Services = () => {
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('Todas');
   
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -68,37 +70,59 @@ const Services = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    console.log("Submit triggered for service:", editingId ? "Edit" : "New");
+    console.log("Form data:", formData);
+
     try {
       setIsUploading(true);
       let finalImageUrl = formData.imageUrl;
       
       if (imageFile) {
+        console.log("Uploading main image...");
         window.M?.toast({ html: 'Subiendo imagen principal...', classes: 'blue rounded' });
         finalImageUrl = await uploadImage(imageFile, 'servicios');
+        console.log("Main image uploaded:", finalImageUrl);
       }
 
       let finalGalleryUrls = [...(formData.galleryUrls || [])];
       if (galleryFiles.length > 0) {
+        console.log(`Uploading ${galleryFiles.length} gallery images...`);
         window.M?.toast({ html: `Subiendo ${galleryFiles.length} fotos extra...`, classes: 'blue rounded' });
         for (let file of galleryFiles) {
           const gUrl = await uploadImage(file, 'servicios');
           finalGalleryUrls.push(gUrl);
         }
+        console.log("Gallery images uploaded");
       }
 
-      const dataToSave = { ...formData, imageUrl: finalImageUrl, galleryUrls: finalGalleryUrls };
+      const dataToSave = {
+        name: formData.name ? String(formData.name).trim() : '',
+        category: formData.category ? String(formData.category).trim() : 'Facial',
+        desc: formData.desc ? String(formData.desc).trim() : '',
+        detailedDescription: formData.detailedDescription ? String(formData.detailedDescription).trim() : '',
+        recommendations: formData.recommendations ? String(formData.recommendations).trim() : '',
+        price: Number(formData.price) || 0,
+        duration: formData.duration ? String(formData.duration).trim() : '',
+        imageUrl: finalImageUrl || '',
+        galleryUrls: finalGalleryUrls || []
+      };
+
+      console.log("Data to save in Firebase:", dataToSave);
 
       if (editingId) {
         await updateDocument('servicios', editingId, dataToSave);
+        console.log("Service updated successfully");
         window.M?.toast({ html: 'Servicio actualizado', classes: 'green rounded' });
       } else {
         await createDocument('servicios', dataToSave);
+        console.log("Service created successfully");
         window.M?.toast({ html: 'Servicio creado', classes: 'green rounded' });
       }
       setIsModalOpen(false);
-      loadServices(); // Refresh list
+      loadServices(); 
     } catch (error) {
-      window.M?.toast({ html: 'Error al procesar la solicitud', classes: 'red rounded' });
+      console.error("Error in handleSubmit:", error);
+      window.M?.toast({ html: 'Error: ' + (error.message || 'Error al procesar'), classes: 'red rounded' });
     } finally {
       setIsUploading(false);
     }
@@ -127,13 +151,29 @@ const Services = () => {
       </div>
 
       <div className="card-panel" style={{ marginBottom: '20px' }}>
-        <div style={{ position: 'relative', width: '100%', maxWidth: '400px' }}>
-          <Search size={18} style={{ position: 'absolute', left: '12px', top: '10px', color: '#94a3b8' }} />
-          <input 
-            type="text" 
-            placeholder="Buscar tratamientos..." 
-            style={{ width: '100%', height: '38px', margin: 0, paddingLeft: '38px', borderRadius: '8px', border: '1px solid #e2e8f0', boxSizing: 'border-box' }}
-          />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
+          <div style={{ position: 'relative', width: '100%', maxWidth: '400px' }}>
+            <Search size={18} style={{ position: 'absolute', left: '12px', top: '10px', color: '#94a3b8' }} />
+            <input 
+              type="text" 
+              placeholder="Buscar tratamientos..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={{ width: '100%', height: '38px', margin: 0, paddingLeft: '38px', borderRadius: '8px', border: '1px solid #e2e8f0', boxSizing: 'border-box' }}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {['Todas', 'Facial', 'Corporal', 'Masaje', 'Bronceado', 'Cosmética'].map(cat => (
+              <button 
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={selectedCategory === cat ? 'modern-btn-small' : 'modern-btn-outline'}
+                style={{ padding: '4px 12px', height: 'auto', fontSize: '0.8rem' }}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -149,7 +189,14 @@ const Services = () => {
         </div>
       ) : (
         <div className="row">
-          {services.map(service => (
+          {services
+            .filter(service => {
+              const matchesSearch = (service.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+                                   (service.category || '').toLowerCase().includes(searchTerm.toLowerCase());
+              const matchesCategory = selectedCategory === 'Todas' || service.category === selectedCategory;
+              return matchesSearch && matchesCategory;
+            })
+            .map(service => (
             <div className="col s12 m6 l4" key={service.id}>
               <div className="card-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', borderRadius: '16px' }}>
                 
@@ -196,91 +243,114 @@ const Services = () => {
         </div>
       )}
 
-      {/* Modern Custom Modal overlay */}
+      {/* Luxury Modal for Services */}
       {isModalOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-          <div className="card-panel" style={{ width: '100%', maxWidth: '500px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h5 style={{ marginTop: 0, fontWeight: 600 }}>{editingId ? 'Editar Servicio' : 'Nuevo Servicio'}</h5>
-            <form onSubmit={handleSubmit} style={{ marginTop: '20px' }}>
-              <div className="row">
-                <div className="col s12" style={{ marginBottom: '15px' }}>
-                  <label>Nombre del Servicio</label>
-                  <input type="text" required className="browser-default" style={{ width: '100%', height: '40px', padding: '0 10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} 
-                    value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-                </div>
-                <div className="col s6" style={{ marginBottom: '15px' }}>
-                  <label>Categoría</label>
-                  <select className="browser-default" style={{ border: '1px solid #e2e8f0', borderRadius: '8px', height: '40px' }}
-                    value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
-                    <option value="Facial">Facial</option>
-                    <option value="Corporal">Corporal</option>
-                    <option value="Masaje">Masaje</option>
-                    <option value="Bronceado">Bronceado</option>
-                    <option value="Cosmética">Cosmética</option>
-                  </select>
-                </div>
-                <div className="col s6" style={{ marginBottom: '15px' }}>
-                   <label>Precio ($ COP)</label>
-                   <input type="number" required min="0" className="browser-default" style={{ width: '100%', height: '40px', padding: '0 10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} 
-                    value={formData.price} onChange={e => setFormData({...formData, price: Number(e.target.value)})} />
-                </div>
-                <div className="col s12" style={{ marginBottom: '15px' }}>
-                   <label>Duración (Ej. '60 min')</label>
-                   <input type="text" required className="browser-default" style={{ width: '100%', height: '40px', padding: '0 10px', borderRadius: '8px', border: '1px solid #e2e8f0' }} 
-                    value={formData.duration} onChange={e => setFormData({...formData, duration: e.target.value})} />
-                </div>
-                
-                <div className="col s12 m6" style={{ marginBottom: '15px' }}>
-                   <label>Imagen Principal (Portada)</label>
-                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
-                     <label className="modern-btn-outline" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: 'pointer', margin: 0, padding: '0 15px', height: '36px' }}>
-                       <Camera size={18} /> Portada
-                       <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => setImageFile(e.target.files[0])} />
-                     </label>
-                     <span style={{ fontSize: '0.85rem', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                       {imageFile ? imageFile.name : formData.imageUrl ? '1 guardada' : 'No seleccionada'}
-                     </span>
-                   </div>
-                </div>
+        <div className="luxury-modal-overlay">
+          <div className="luxury-modal-container" style={{ maxWidth: '600px' }}>
+            <div className="luxury-modal-header">
+              <h5 style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>
+                {editingId ? 'Editar Servicio' : 'Nuevo Servicio'}
+              </h5>
+              <button onClick={() => setIsModalOpen(false)} className="btn-flat" style={{ padding: 0 }}>
+                <X size={24} color="#94a3b8" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleSubmit}>
+              <div className="luxury-modal-body">
+                <div className="row" style={{ margin: 0 }}>
+                  <div className="col s12" style={{ marginBottom: '15px' }}>
+                    <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Nombre del Servicio</label>
+                    <input type="text" required className="browser-default" 
+                      value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+                  </div>
+                  
+                  <div className="col s12 m6" style={{ marginBottom: '15px' }}>
+                    <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Categoría</label>
+                    <select className="browser-default"
+                      value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
+                      <option value="Facial">Facial</option>
+                      <option value="Corporal">Corporal</option>
+                      <option value="Masaje">Masaje</option>
+                      <option value="Bronceado">Bronceado</option>
+                      <option value="Cosmética">Cosmética</option>
+                    </select>
+                  </div>
+                  
+                  <div className="col s12 m6" style={{ marginBottom: '15px' }}>
+                     <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Precio ($ COP)</label>
+                     <input type="number" required min="0" className="browser-default" 
+                      value={formData.price} onChange={e => setFormData({...formData, price: Number(e.target.value)})} />
+                  </div>
+                  
+                  <div className="col s12" style={{ marginBottom: '15px' }}>
+                     <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Duración (Ej. '60 min')</label>
+                     <input type="text" required className="browser-default" 
+                      value={formData.duration} onChange={e => setFormData({...formData, duration: e.target.value})} />
+                  </div>
+                  
+                  <div className="col s12 m6" style={{ marginBottom: '15px' }}>
+                     <label style={{ color: '#1e293b', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Imagen Principal</label>
+                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                       <label className="modern-btn-outline" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: 'pointer', margin: 0, padding: '0 15px', height: '36px', color: '#1e293b', fontWeight: 600 }}>
+                         <Camera size={18} /> Portada
+                         <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => setImageFile(e.target.files[0])} />
+                       </label>
+                       <span style={{ fontSize: '0.8rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                         {imageFile ? imageFile.name : formData.imageUrl ? '✓ Cargada' : 'Sin imagen'}
+                       </span>
+                     </div>
+                  </div>
 
-                <div className="col s12 m6" style={{ marginBottom: '15px' }}>
-                   <label>Galería (Opcional - Múltiples)</label>
-                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
-                     <label className="modern-btn-outline" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: 'pointer', margin: 0, padding: '0 15px', height: '36px' }}>
-                       <Camera size={18} /> Añadir Fotos
-                       <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={e => setGalleryFiles(Array.from(e.target.files))} />
-                     </label>
-                     <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                       {galleryFiles.length > 0 ? `${galleryFiles.length} por subir` : (formData.galleryUrls?.length > 0 ? `${formData.galleryUrls.length} en galería` : 'Opcional')}
-                     </span>
-                   </div>
-                </div>
-                <div className="col s12" style={{ marginBottom: '20px' }}>
-                   <label>Descripción corta (Landing Page)</label>
-                   <textarea required className="browser-default" style={{ width: '100%', height: '80px', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', resize: 'vertical' }} 
-                    value={formData.desc} onChange={e => setFormData({...formData, desc: e.target.value})} />
-                </div>
-                <div className="col s12" style={{ marginBottom: '20px' }}>
-                   <label>Descripción Larga (Página de Detalle) - Opcional</label>
-                   <textarea className="browser-default" style={{ width: '100%', height: '120px', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', resize: 'vertical' }} 
-                    value={formData.detailedDescription} onChange={e => setFormData({...formData, detailedDescription: e.target.value})} placeholder="Detalles profundos del servicio y sus beneficios..." />
-                </div>
-                <div className="col s12" style={{ marginBottom: '20px' }}>
-                   <label>Recomendaciones Previas (Página de Detalle) - Opcional</label>
-                   <textarea className="browser-default" style={{ width: '100%', height: '100px', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', resize: 'vertical' }} 
-                    value={formData.recommendations} onChange={e => setFormData({...formData, recommendations: e.target.value})} placeholder="Ej: Asistir sin maquillaje, evitar el sol 24 hrs antes..." />
+                  <div className="col s12 m6" style={{ marginBottom: '15px' }}>
+                     <label style={{ color: '#1e293b', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Galería Extra</label>
+                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                       <label className="modern-btn-outline" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: 'pointer', margin: 0, padding: '0 15px', height: '36px', color: '#1e293b', fontWeight: 600 }}>
+                         <Plus size={18} /> Fotos
+                         <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={e => setGalleryFiles(Array.from(e.target.files))} />
+                       </label>
+                       <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                         {galleryFiles.length > 0 ? `${galleryFiles.length} nuevas` : formData.galleryUrls?.length || 0}
+                       </span>
+                     </div>
+                  </div>
+
+                  <div className="col s12" style={{ marginBottom: '15px' }}>
+                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                       <label style={{ color: '#1e293b', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Descripción corta</label>
+                       <span style={{ fontSize: '0.8rem', color: formData.desc.length >= 150 ? '#ef4444' : '#94a3b8' }}>
+                         {formData.desc.length}/150
+                       </span>
+                     </div>
+                     <textarea required maxLength={150} className="browser-default" style={{ height: '80px', resize: 'none' }} 
+                      value={formData.desc} onChange={e => setFormData({...formData, desc: e.target.value})} />
+                  </div>
+
+                  <div className="col s12" style={{ marginBottom: '15px' }}>
+                     <label style={{ color: '#1e293b', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Descripción Larga</label>
+                     <textarea className="browser-default" style={{ height: '100px', resize: 'vertical' }} 
+                      value={formData.detailedDescription} onChange={e => setFormData({...formData, detailedDescription: e.target.value})} />
+                  </div>
+
+                  <div className="col s12">
+                     <label style={{ color: '#1e293b', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Recomendaciones</label>
+                     <textarea className="browser-default" style={{ height: '80px', resize: 'vertical' }} 
+                      value={formData.recommendations} onChange={e => setFormData({...formData, recommendations: e.target.value})} />
+                  </div>
                 </div>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              
+              <div className="luxury-modal-footer">
                 <button type="button" className="modern-btn-outline" onClick={() => setIsModalOpen(false)}>Cancelar</button>
                 <button type="submit" className="modern-btn-small" disabled={isUploading}>
-                  {isUploading ? 'Subiendo...' : 'Guardar Servicio'}
+                  {isUploading ? 'Guardando...' : 'Guardar Servicio'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
 
     </div>
   );

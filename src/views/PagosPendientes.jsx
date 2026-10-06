@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot, doc, updateDoc, writeBatch, increment } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { CheckCircle, XCircle, Eye, AlertTriangle, Image as ImageIcon, MessageCircle, Truck, Package, Clock, RotateCcw } from 'lucide-react';
+import { CheckCircle, XCircle, Eye, AlertTriangle, Image as ImageIcon, MessageCircle, Truck, Package, Clock, RotateCcw, X } from 'lucide-react';
 import emailjs from '@emailjs/browser';
 import logoBase64 from '../assets/logoBase64';
 
@@ -51,34 +51,39 @@ const DispatchModal = ({ pago, onClose, onSave }) => {
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-      <div style={{ backgroundColor: 'white', borderRadius: '20px', padding: '32px', width: '100%', maxWidth: '440px', boxShadow: '0 25px 50px rgba(0,0,0,0.2)' }}>
-        <h5 style={{ margin: '0 0 8px 0', fontWeight: 800, color: '#0f172a' }}>📦 Registrar Despacho</h5>
-        <p style={{ margin: '0 0 24px 0', color: '#64748b', fontSize: '0.9rem' }}>
-          Pedido de <strong>{pago.clientName}</strong> · ${Number(pago.amount || 0).toLocaleString()}
-        </p>
+    <div className="luxury-modal-overlay">
+      <div className="luxury-modal-container" style={{ maxWidth: '440px' }}>
+        <div className="luxury-modal-header">
+          <h5 style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>Registrar Despacho</h5>
+          <button onClick={onClose} className="btn-flat" style={{ padding: 0 }}>
+            <X size={24} color="#94a3b8" />
+          </button>
+        </div>
+
         <form onSubmit={handleSave}>
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontWeight: 600, color: '#374151', fontSize: '0.85rem', marginBottom: '6px' }}>Empresa de Mensajería *</label>
-            <select required value={carrier} onChange={e => setCarrier(e.target.value)} className="browser-default"
-              style={{ width: '100%', height: '44px', padding: '0 12px', borderRadius: '10px', border: '1px solid #e5e7eb', outline: 'none', fontSize: '0.95rem' }}>
-              <option value="">Seleccionar...</option>
-              {CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+          <div className="luxury-modal-body">
+            <p style={{ margin: '0 0 20px 0', color: '#64748b', fontSize: '0.9rem' }}>
+              Pedido de <strong>{pago.clientName}</strong> · <span style={{ fontWeight: 700, color: 'var(--spa-gold)' }}>${Number(pago.amount || 0).toLocaleString()}</span>
+            </p>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Empresa de Mensajería</label>
+              <select required value={carrier} onChange={e => setCarrier(e.target.value)} className="browser-default">
+                <option value="">Seleccionar...</option>
+                {CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+
+            <div style={{ marginBottom: '8px' }}>
+              <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Número de Guía</label>
+              <input type="text" required placeholder="Ej: 123456789" value={guide} onChange={e => setGuide(e.target.value)} className="browser-default" />
+            </div>
           </div>
-          <div style={{ marginBottom: '24px' }}>
-            <label style={{ display: 'block', fontWeight: 600, color: '#374151', fontSize: '0.85rem', marginBottom: '6px' }}>Número de Guía *</label>
-            <input type="text" required placeholder="Ej: 123456789" value={guide} onChange={e => setGuide(e.target.value)}
-              style={{ width: '100%', height: '44px', padding: '0 15px', borderRadius: '10px', border: '1px solid #e5e7eb', outline: 'none', boxSizing: 'border-box', fontSize: '0.95rem' }} />
-          </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button type="button" onClick={onClose}
-              style={{ flex: 1, background: 'transparent', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px', fontWeight: 600, cursor: 'pointer', color: '#64748b' }}>
-              Cancelar
-            </button>
-            <button type="submit" disabled={saving}
-              style={{ flex: 2, backgroundColor: '#10b981', border: 'none', borderRadius: '10px', padding: '12px', fontWeight: 700, cursor: 'pointer', color: 'white', opacity: saving ? 0.7 : 1 }}>
-              {saving ? 'Guardando...' : '✉️ Guardar y Notificar'}
+
+          <div className="luxury-modal-footer">
+            <button type="button" className="modern-btn-outline" onClick={onClose}>Cancelar</button>
+            <button type="submit" disabled={saving} className="modern-btn-small">
+              {saving ? 'Guardando...' : 'Guardar y Notificar'}
             </button>
           </div>
         </form>
@@ -517,9 +522,9 @@ const PagosPendientes = () => {
   };
 
   const tabStyle = (tab) => ({
-    padding: '10px 24px', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer',
-    border: 'none', background: 'transparent', borderBottom: activeTab === tab ? '3px solid #10b981' : '3px solid transparent',
-    color: activeTab === tab ? '#10b981' : '#64748b', transition: 'all 0.2s',
+    padding: '12px 24px', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer',
+    border: 'none', background: 'transparent', borderBottom: activeTab === tab ? '3px solid var(--spa-gold)' : '3px solid transparent',
+    color: activeTab === tab ? 'var(--spa-gold)' : '#64748b', transition: 'all 0.2s',
   });
 
   return (
@@ -552,15 +557,14 @@ const PagosPendientes = () => {
         }
       </div>
 
-      {/* Image Lightbox */}
+      {/* Luxury Image Lightbox */}
       {modalImage && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}
-          onClick={() => setModalImage(null)}>
-          <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
-            <img src={modalImage} alt="Comprobante" style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain', borderRadius: '8px' }} />
+        <div className="luxury-modal-overlay" onClick={() => setModalImage(null)}>
+          <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }} onClick={e => e.stopPropagation()}>
+            <img src={modalImage} alt="Comprobante" style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '16px', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }} />
             <button onClick={() => setModalImage(null)}
-              style={{ position: 'absolute', top: '-40px', right: 0, background: 'transparent', border: 'none', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600 }}>
-              Cerrar <XCircle size={20} />
+              style={{ position: 'absolute', top: '-48px', right: 0, background: 'white', border: 'none', color: '#0f172a', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '40px', height: '40px', borderRadius: '50%', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+              <X size={20} />
             </button>
           </div>
         </div>

@@ -14,6 +14,7 @@ const PublicServiceDetail = () => {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [config, setConfig] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
   const { cart, cartCount, setCart } = useCart();
@@ -65,13 +66,64 @@ const PublicServiceDetail = () => {
     return (
       <div style={{ height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column' }}>
         <h3>Servicio no encontrado</h3>
-        <Link to="/inicio" style={{ color: darkOlive, fontWeight: 600, marginTop: '20px' }}>Volver al inicio</Link>
+        <Link to="/inicio#servicios" style={{ color: darkOlive, fontWeight: 600, marginTop: '20px' }}>Volver al catálogo</Link>
       </div>
     );
   }
 
   return (
     <div style={{ fontFamily: '"Inter", sans-serif', backgroundColor: '#FCFBF8', minHeight: '100vh', color: '#1f2937', paddingTop: '130px' }}>
+      
+      <style dangerouslySetInnerHTML={{__html: `
+        .mobile-menu-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: rgba(0,0,0,0.5);
+          z-index: 10001;
+          opacity: 0;
+          visibility: hidden;
+          transition: all 0.3s ease;
+        }
+        .mobile-menu-overlay.active {
+          opacity: 1;
+          visibility: visible;
+        }
+        .mobile-menu-drawer {
+          position: fixed;
+          top: 0;
+          right: -100%;
+          width: 80%;
+          max-width: 300px;
+          height: 100%;
+          background: white;
+          z-index: 10002;
+          padding: 40px 30px;
+          transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+          box-shadow: -10px 0 30px rgba(0,0,0,0.1);
+        }
+        .mobile-menu-drawer.active {
+          right: 0;
+        }
+      `}} />
+
+      {/* Mobile Menu UI */}
+      <div className={`mobile-menu-overlay ${isMobileMenuOpen ? 'active' : ''}`} onClick={() => setIsMobileMenuOpen(false)} />
+      <div className={`mobile-menu-drawer ${isMobileMenuOpen ? 'active' : ''}`}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '40px' }}>
+          <button onClick={() => setIsMobileMenuOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+             <MenuIcon size={32} color="#1F2937" />
+          </button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
+          <Link to="/inicio" onClick={() => setIsMobileMenuOpen(false)} style={{ color: '#1F2937', fontWeight: 600, fontSize: '1.4rem', textDecoration: 'none' }}>Inicio</Link>
+          <Link to="/inicio#servicios" onClick={() => setIsMobileMenuOpen(false)} style={{ color: '#1F2937', fontWeight: 600, fontSize: '1.4rem', textDecoration: 'none' }}>Servicios</Link>
+          <Link to="/inicio#productos" onClick={() => setIsMobileMenuOpen(false)} style={{ color: '#1F2937', fontWeight: 600, fontSize: '1.4rem', textDecoration: 'none' }}>Productos</Link>
+          <Link to="/inicio#contacto" onClick={() => setIsMobileMenuOpen(false)} style={{ color: '#1F2937', fontWeight: 600, fontSize: '1.4rem', textDecoration: 'none' }}>Contacto</Link>
+        </div>
+      </div>
       
       {/* Navbar Minimalist with Shrink Effect (Consistent) */}
       <nav style={{ 
@@ -104,14 +156,14 @@ const PublicServiceDetail = () => {
             <Link to="/inicio#contacto" style={{ color: '#1F2937', fontWeight: 600, fontSize: scrolled ? '0.85rem' : '1.1rem', textDecoration: 'none', transition: 'all 0.4s' }}>Contacto</Link>
           </div>
 
-          <button className="hide-on-med-and-up" style={{ background: 'none', border: 'none', color: '#1F2937', cursor: 'pointer' }}>
+          <button className="hide-on-med-and-up" onClick={() => setIsMobileMenuOpen(true)} style={{ background: 'none', border: 'none', color: '#1F2937', cursor: 'pointer' }}>
             <MenuIcon size={28} />
           </button>
         </div>
       </nav>
 
       <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '40px 5vw 100px 5vw' }}>
-        <Link to="/inicio" style={{ textDecoration: 'none', color: '#4b5563', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 500, marginBottom: '30px' }}>
+        <Link to="/inicio#servicios" style={{ textDecoration: 'none', color: '#4b5563', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 500, marginBottom: '30px' }}>
           <ChevronLeft size={20} /> <span className="hide-on-small-only">Volver al catálogo</span>
         </Link>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '40px' }}>

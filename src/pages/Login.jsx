@@ -38,7 +38,8 @@ function Login() {
           setError('El formato del correo electrónico no es válido.');
           break;
         case 'auth/network-request-failed':
-          setError('Error de conexión. Verifica tu internet e intenta nuevamente.');
+        case 'auth/internal-error':
+          setError('Error de conexión o permisos. Si usas Chrome/Safari en iPhone, revisa que no estés bloqueando cookies ni en modo incógnito.');
           break;
         case 'auth/too-many-requests':
           setError('Demasiados intentos fallidos. Por seguridad, intenta más tarde.');

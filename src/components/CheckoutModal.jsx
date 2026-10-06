@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { uploadImage } from '../services/firebaseUtils';
-import { CheckCircle2, X, Check, Image as ImageIcon } from 'lucide-react';
+import { CheckCircle2, X, Check, Image as ImageIcon, Trash2, Plus, Minus, MessageCircle, ShieldCheck, Info, UserCheck } from 'lucide-react';
 import qrNequi from '../assets/qr_nequi.jpg';
 import emailjs from '@emailjs/browser';
 import logoBase64 from '../assets/logoBase64';
@@ -10,15 +10,25 @@ import logoBase64 from '../assets/logoBase64';
 const CheckoutModal = ({ selectedItem, cartItems, setCart, onClose }) => {
   const isCart = cartItems && cartItems.length > 0;
   const isService = selectedItem && selectedItem.type === 'servicio';
+
+  const parsePrice = (price) => {
+    if (typeof price === 'number') return price;
+    if (!price) return 0;
+    // Remove symbols, dots and commas, but handle potential decimals if any
+    const clean = String(price).replace(/[^0-9]/g, '');
+    return parseFloat(clean) || 0;
+  };
+
   const totalPrice = isCart 
-    ? cartItems.reduce((acc, item) => acc + (item.price * item.qty), 0)
-    : selectedItem?.item?.price;
+    ? cartItems.reduce((acc, item) => acc + (parsePrice(item.price) * (parseInt(item.quantity) || 1)), 0)
+    : (parsePrice(selectedItem?.item?.price) || 0);
   const itemName = isCart ? 'Productos Varios (Carrito)' : selectedItem?.item?.name;
 
   const [checkoutStep, setCheckoutStep] = useState(1);
   const [paymentMethod, setPaymentMethod] = useState('nequi');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmedTotal, setConfirmedTotal] = useState(0); // snapshot before cart is cleared
+  const [capturedProductList, setCapturedProductList] = useState('');
 
   // Form State
   const [clientName, setClientName] = useState('');
@@ -33,25 +43,101 @@ const CheckoutModal = ({ selectedItem, cartItems, setCart, onClose }) => {
   const [shippingBarrio, setShippingBarrio] = useState('');
   const [shippingAddress, setShippingAddress] = useState('');
   const [shippingRef, setShippingRef] = useState('');
+
+  // Habeas Data & Recurring Client State
+  const [acceptHabeasData, setAcceptHabeasData] = useState(false);
+  const [showHabeasModal, setShowHabeasModal] = useState(false);
+  const [isReturningClient, setIsReturningClient] = useState(false);
   
   const [availableTimes, setAvailableTimes] = useState([]);
-  const SPA_HOURS = ["08:00", "09:00", "10:00", "11:00", "12:00", "14:00", "15:00", "16:00", "17:00", "18:00"];
+  const SPA_HOURS = ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00"];
+
+  // Cargar datos previos de cliente recurrente desde almacenamiento local
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem('andrea_spa_client');
+      if (cached) {
+        const data = JSON.parse(cached);
+        if (data.name) setClientName(data.name);
+        if (data.phone) setClientPhone(data.phone);
+        if (data.email) setClientEmail(data.email);
+        if (data.shippingCity) setShippingCity(data.shippingCity);
+        if (data.shippingBarrio) setShippingBarrio(data.shippingBarrio);
+        if (data.shippingAddress) setShippingAddress(data.shippingAddress);
+        if (data.shippingRef) setShippingRef(data.shippingRef);
+        if (data.aceptaHabeasData) setAcceptHabeasData(true);
+        setIsReturningClient(true);
+      }
+    } catch (e) {
+      console.warn("No se pudo leer datos locales del cliente:", e);
+    }
+  }, []);
+
+  const handleClearSavedData = () => {
+    setClientName('');
+    setClientPhone('');
+    setClientEmail('');
+    setShippingCity('');
+    setShippingBarrio('');
+    setShippingAddress('');
+    setShippingRef('');
+    setAcceptHabeasData(false);
+    setIsReturningClient(false);
+    try {
+      localStorage.removeItem('andrea_spa_client');
+    } catch (e) {}
+  };
 
   useEffect(() => {
     if (isService && reservationDate) {
       const fetchAvailable = async () => {
-        const q = query(
-          collection(db, 'citas'),
-          where('date', '==', reservationDate)
-        );
-        const snap = await getDocs(q);
-        // Filtramos para ignorar citas canceladas (esas no ocupan lugar)
-        const occupied = snap.docs
-          .filter(doc => doc.data().status !== 'Cancelada')
-          .map(doc => doc.data().time);
-        
-        setAvailableTimes(SPA_HOURS.filter(h => !occupied.includes(h)));
-        setReservationTime('');
+        try {
+          const q = query(
+            collection(db, 'citas'),
+            where('date', '==', reservationDate)
+          );
+          const snap = await getDocs(q);
+          
+          // Obtenemos los servicios para saber duraciones (opcional pero recomendado para solapamientos)
+          // Para simplificar y cumplir con el pedido: si hay una cita en el panel, bloqueamos el slot.
+          const occupied = snap.docs
+            .filter(doc => doc.data().status !== 'Cancelada')
+            .map(doc => doc.data().time);
+          
+          const timeToMins = (t) => {
+            if (!t) return 0;
+            const [h, m] = t.split(':').map(Number);
+            return h * 60 + (m || 0);
+          };
+
+          // Filtramos SPA_HOURS
+          let filteredTimes = SPA_HOURS.filter(h => {
+            const hMins = timeToMins(h);
+            // Bloqueo exacto y bloqueo por proximidad (si hay cita en el panel a las 10:30, bloquea 10:00 y 11:00)
+            return !occupied.some(occTime => {
+              const occMins = timeToMins(occTime);
+              return Math.abs(occMins - hMins) < 60; // Bloquea si hay menos de 60 mins de diferencia
+            });
+          });
+
+          // Filtro adicional: Si la fecha es hoy, ocultar horas pasadas
+          const today = new Date();
+          const todayStr = today.toLocaleDateString('en-CA'); // format YYYY-MM-DD
+          
+          if (reservationDate === todayStr) {
+            const currentMins = today.getHours() * 60 + today.getMinutes();
+            filteredTimes = filteredTimes.filter(timeStr => {
+              const mins = timeToMins(timeStr);
+              // Solo mostrar si es al menos 30 minutos después de ahora
+              return mins > (currentMins + 30);
+            });
+          }
+          
+          setAvailableTimes(filteredTimes);
+          setReservationTime('');
+        } catch (error) {
+          console.error("Error fetching availability:", error);
+        }
       };
       fetchAvailable();
     }
@@ -59,21 +145,76 @@ const CheckoutModal = ({ selectedItem, cartItems, setCart, onClose }) => {
 
   const checkAvailability = async () => {
     if (!isService) return true;
+    
+    // Validar si es hoy y la hora ya pasó
+    const today = new Date();
+    const todayStr = today.toLocaleDateString('en-CA');
+    const timeToMins = (t) => {
+      if (!t) return 0;
+      const [h, m] = t.split(':').map(Number);
+      return h * 60 + (m || 0);
+    };
+
+    if (reservationDate === todayStr) {
+      const currentMins = today.getHours() * 60 + today.getMinutes();
+      if (timeToMins(reservationTime) <= (currentMins + 30)) {
+        return false;
+      }
+    }
+
     const q = query(
       collection(db, 'citas'),
-      where('date', '==', reservationDate),
-      where('time', '==', reservationTime)
+      where('date', '==', reservationDate)
     );
     const snap = await getDocs(q);
-    // Es libre si no hay documentos O si todos los documentos están "Cancelada"
-    const hasActiveConflict = snap.docs.some(doc => doc.data().status !== 'Cancelada');
-    return !hasActiveConflict;
+    
+    const hMins = timeToMins(reservationTime);
+    const hasConflict = snap.docs.some(doc => {
+      const d = doc.data();
+      if (d.status === 'Cancelada') return false;
+      const occMins = timeToMins(d.time);
+      return Math.abs(occMins - hMins) < 60;
+    });
+
+    return !hasConflict;
   };
 
   const handleNextStep = async (e) => {
     e.preventDefault();
+    
+    // Manual field trimming
+    const trimmedName = clientName.trim();
+    const trimmedEmail = clientEmail.trim();
+    const trimmedPhone = clientPhone.trim().replace(/\D/g, '');
+    
+    // Product specific fields
+    const trimmedCity = shippingCity.trim();
+    const trimmedBarrio = shippingBarrio.trim();
+    const trimmedAddress = shippingAddress.trim();
+    const trimmedRef = shippingRef.trim();
+
+    // Validation
+    if (!trimmedName || !trimmedPhone || !trimmedEmail) {
+      window.M?.toast({ html: 'Completa los datos de contacto', classes: 'red rounded' });
+      return;
+    }
+    
+    if (checkoutStep === 1 && !acceptHabeasData) {
+      window.M?.toast({ html: 'Debes autorizar la Política de Tratamiento de Datos (Habeas Data) para continuar', classes: 'red rounded' });
+      return;
+    }
+    
+    if (!isService && (!trimmedCity || !trimmedBarrio || !trimmedAddress)) {
+      window.M?.toast({ html: 'Completa los datos de envío', classes: 'red rounded' });
+      return;
+    }
+
     if (checkoutStep === 1) {
       if (isService) {
+        if (!reservationDate) {
+          window.M?.toast({ html: 'Selecciona una fecha', classes: 'red rounded' });
+          return;
+        }
         if (!reservationTime) {
           window.M?.toast({ html: 'Selecciona una hora disponible', classes: 'red rounded' });
           return;
@@ -100,25 +241,80 @@ const CheckoutModal = ({ selectedItem, cartItems, setCart, onClose }) => {
 
   const registerClientIfNew = async () => {
     try {
-      // Intentar buscar por correo, o en su defecto celular
-      const qEmail = query(collection(db, 'clientes'), where('email', '==', clientEmail.trim()));
-      const snapEmail = await getDocs(qEmail);
-      if (snapEmail.empty) {
-        // Podría buscar por teléfono también
-        const qPhone = query(collection(db, 'clientes'), where('phone', '==', clientPhone.replace(/\D/g, '')));
+      const cleanPhone = clientPhone.trim().replace(/\D/g, '');
+      const cleanEmail = clientEmail.trim().toLowerCase();
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      // 1. Buscar si ya existe por teléfono (identificador unívoco móvil para WhatsApp)
+      let existingDoc = null;
+      if (cleanPhone) {
+        const qPhone = query(collection(db, 'clientes'), where('phone', '==', cleanPhone));
         const snapPhone = await getDocs(qPhone);
-        
-        if (snapPhone.empty) {
-           await addDoc(collection(db, 'clientes'), {
-             name: clientName,
-             email: clientEmail.trim(),
-             phone: clientPhone.replace(/\D/g, ''),
-             createdAt: serverTimestamp()
-           });
+        if (!snapPhone.empty) {
+          existingDoc = snapPhone.docs[0];
         }
       }
+
+      // 2. Si no se encontró por teléfono, buscar por correo
+      if (!existingDoc && cleanEmail) {
+        const qEmail = query(collection(db, 'clientes'), where('email', '==', cleanEmail));
+        const snapEmail = await getDocs(qEmail);
+        if (!snapEmail.empty) {
+          existingDoc = snapEmail.docs[0];
+        }
+      }
+
+      if (existingDoc) {
+        // ACTUALIZACIÓN INTELIGENTE (Cero duplicidad en BD)
+        const currentData = existingDoc.data();
+        const currentVisits = Number(currentData.totalVisits || currentData.totalVisitas || 0);
+
+        await updateDoc(doc(db, 'clientes', existingDoc.id), {
+          name: clientName.trim(),
+          phone: cleanPhone,
+          email: cleanEmail,
+          totalVisits: currentVisits + 1,
+          totalVisitas: currentVisits + 1,
+          lastVisit: reservationDate || todayStr,
+          ultimaVisita: serverTimestamp(),
+          aceptaHabeasData: true,
+          fechaAceptacionHabeasData: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        // CREACIÓN DE NUEVO CLIENTE (Primer registro)
+        await addDoc(collection(db, 'clientes'), {
+          name: clientName.trim(),
+          phone: cleanPhone,
+          email: cleanEmail,
+          totalVisits: 1,
+          totalVisitas: 1,
+          lastVisit: reservationDate || todayStr,
+          createdAt: serverTimestamp(),
+          ultimaVisita: serverTimestamp(),
+          aceptaHabeasData: true,
+          fechaAceptacionHabeasData: serverTimestamp(),
+          origen: 'Web'
+        });
+      }
+
+      // Guardar en el dispositivo del cliente para agilizar futuras visitas
+      try {
+        localStorage.setItem('andrea_spa_client', JSON.stringify({
+          name: clientName.trim(),
+          phone: cleanPhone,
+          email: cleanEmail,
+          shippingCity: shippingCity.trim(),
+          shippingBarrio: shippingBarrio.trim(),
+          shippingAddress: shippingAddress.trim(),
+          shippingRef: shippingRef.trim(),
+          aceptaHabeasData: true
+        }));
+      } catch (cacheErr) {
+        console.warn("No se pudo persistir cliente en localStorage", cacheErr);
+      }
     } catch(err) {
-      console.error("Error auto-registrando cliente:", err);
+      console.error("Error auto-registrando o actualizando cliente:", err);
     }
   };
 
@@ -154,10 +350,16 @@ const CheckoutModal = ({ selectedItem, cartItems, setCart, onClose }) => {
       const collectionName = isService ? 'citas' : 'pedidos';
       const productStatus = 'Esperando confirmación de stock';
       
+      if (totalPrice <= 0) {
+        window.M?.toast({ html: 'El total de la compra debe ser mayor a 0.', classes: 'red rounded' });
+        setIsSubmitting(false);
+        return;
+      }
+
       const payload = {
-        clientName,
-        clientPhone,
-        clientEmail,
+        clientName: clientName.trim(),
+        clientPhone: clientPhone.trim().replace(/\D/g, ''),
+        clientEmail: clientEmail.trim(),
         amount: totalPrice,
         itemRef: isCart ? 'cart' : selectedItem?.item?.id,
         itemName: itemName,
@@ -168,17 +370,24 @@ const CheckoutModal = ({ selectedItem, cartItems, setCart, onClose }) => {
           : productStatus,
         paymentMethod: isPresencial ? 'Presencial' : 'Nequi',
         createdAt: serverTimestamp(),
+        aceptaHabeasData: true,
+        fechaAceptacionHabeasData: serverTimestamp(),
         // Shipping address (products only)
         ...(!isService && {
-          shippingCity,
-          shippingBarrio,
-          shippingAddress,
-          shippingRef,
+          shippingCity: shippingCity.trim(),
+          shippingBarrio: shippingBarrio.trim(),
+          shippingAddress: shippingAddress.trim(),
+          shippingRef: shippingRef.trim(),
         }),
       };
       
       if (isCart) {
-        payload.cartItems = cartItems.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price }));
+        payload.cartItems = cartItems.map(i => ({ 
+          id: String(i.id), 
+          name: i.name, 
+          quantity: parseInt(i.quantity) || 1, 
+          price: parseFloat(i.price) || 0 
+        }));
       }
 
       if (isService) {
@@ -270,11 +479,11 @@ const CheckoutModal = ({ selectedItem, cartItems, setCart, onClose }) => {
       } else {
         // ── Producto: notificación interna + correo inmediato al cliente ──
         const productList = isCart
-          ? cartItems.map(i => `${i.qty}x ${i.name}`).join(', ')
+          ? cartItems.map(i => `${parseInt(i.quantity) || 1}x ${i.name}`).join(', ')
           : `${selectedItem?.item?.name || itemName}`;
         const capturedTotal = isCart
-          ? cartItems.reduce((acc, i) => acc + (i.price * i.qty), 0)
-          : (selectedItem?.item?.price || 0);
+          ? cartItems.reduce((acc, i) => acc + (parseFloat(i.price) * parseInt(i.quantity)), 0)
+          : (parseFloat(selectedItem?.item?.price) || 0);
 
         // Internal notification for Andrea
         try {
@@ -350,13 +559,16 @@ const CheckoutModal = ({ selectedItem, cartItems, setCart, onClose }) => {
       // Se agregó un botón explícito en el Paso 3.
       
       if (isCart && setCart) {
-        setConfirmedTotal(totalPrice); // capture before cart is cleared
+        setConfirmedTotal(totalPrice);
+        setCapturedProductList(cartItems.map(item => `- ${item.quantity}x ${item.name}`).join('\n'));
         setCart([]);
+      } else if (isService) {
+        setConfirmedTotal(totalPrice);
       }
       setCheckoutStep(3);
     } catch (error) {
-      console.error(error);
-      window.M?.toast({ html: 'Hubo un error', classes: 'red rounded' });
+      console.error("🔴 Checkout Submission Error:", error);
+      window.M?.toast({ html: `Hubo un error: ${error.message || 'Error desconocido'}`, classes: 'red rounded' });
     } finally {
       setIsSubmitting(false);
     }
@@ -366,40 +578,90 @@ const CheckoutModal = ({ selectedItem, cartItems, setCart, onClose }) => {
   const darkOlive = '#4a5d23';
 
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
-      <div style={{ backgroundColor: 'white', width: '100%', maxWidth: '500px', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', position: 'relative' }}>
+    <div className="luxury-modal-overlay">
+      <div className="luxury-modal-container" style={{ maxWidth: '500px' }}>
         
-        <button onClick={onClose} style={{ position: 'absolute', top: '15px', right: '15px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b', zIndex: 10 }}>
-          <X size={24} />
-        </button>
-
-        <div style={{ padding: '20px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
+        {/* Header con botón X fijo */}
+        <div className="luxury-modal-header">
           <h5 style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>
              {checkoutStep === 1 ? (isService ? 'Agenda tu Cita' : 'Completa tu Compra') : 
               checkoutStep === 2 ? 'Pago Exclusivo Nequi' : '¡Solicitud Recibida!'}
           </h5>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', padding: '5px' }}>
+            <X size={24} />
+          </button>
         </div>
 
-        <div style={{ padding: '30px 20px', maxHeight: '70vh', overflowY: 'auto' }}>
+        <div className="luxury-modal-body">
           {checkoutStep === 1 && (
             <form onSubmit={handleNextStep}>
               {isCart ? (
-                <div style={{ backgroundColor: '#f9fafb', padding: '15px', borderRadius: '12px', marginBottom: '15px' }}>
-                  <span style={{ fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 600, marginBottom: '10px', display: 'block' }}>Tu Carrito</span>
-                  {cartItems.map(item => (
-                    <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', borderBottom: '1px dashed #e2e8f0', paddingBottom: '8px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', backgroundColor: '#f1f5f9', borderRadius: '4px' }}>
-                           <button type="button" onClick={() => setCart(prev => prev.map(i => i.id === item.id ? {...i, qty: Math.max(1, i.qty - 1)} : i))} style={{ background: 'none', border: 'none', padding: '2px 6px', cursor: 'pointer', fontWeight: 700 }}>-</button>
-                           <span style={{ fontSize: '0.85rem', width: '15px', textAlign: 'center', fontWeight: 600 }}>{item.qty}</span>
-                           <button type="button" onClick={() => setCart(prev => prev.map(i => i.id === item.id && i.qty < Number(i.stock || 99) ? {...i, qty: i.qty + 1} : i))} style={{ background: 'none', border: 'none', padding: '2px 6px', cursor: 'pointer', fontWeight: 700 }}>+</button>
+                <div style={{ backgroundColor: '#f9fafb', padding: '15px', borderRadius: '12px', marginBottom: '25px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <p style={{ fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 600, margin: 0 }}>
+                      Resumen de Compra ({cartItems.reduce((acc, i) => acc + (parseInt(i.quantity) || 1), 0)} productos)
+                    </p>
+                    <button 
+                      type="button" 
+                      onClick={() => {
+                        if (window.confirm('¿Deseas vaciar todos los productos del carrito?')) {
+                          setCart([]);
+                          if (!selectedItem) onClose();
+                        }
+                      }}
+                      style={{ background: '#fee2e2', border: 'none', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', fontWeight: 600 }}
+                      title="Borrar totalmente el carrito"
+                    >
+                      <Trash2 size={13} /> Vaciar Carrito
+                    </button>
+                  </div>
+                  {cartItems.map((item, idx) => (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', fontSize: '0.95rem', gap: '10px', padding: '10px', backgroundColor: 'white', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            const newCart = cartItems.filter((_, i) => i !== idx);
+                            setCart(newCart);
+                            if (newCart.length === 0 && !selectedItem) onClose();
+                          }}
+                          style={{ background: '#fee2e2', border: 'none', borderRadius: '6px', padding: '6px', cursor: 'pointer', color: '#ef4444', display: 'flex' }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                        <div>
+                          <span style={{ display: 'block', fontWeight: 600, color: '#1e293b', marginBottom: '4px' }}>{item.name}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const newCart = [...cartItems];
+                                const currentQty = Number(newCart[idx].quantity) || 1;
+                                if (currentQty > 1) {
+                                  newCart[idx].quantity = currentQty - 1;
+                                  setCart(newCart);
+                                }
+                              }}
+                              style={{ border: '1px solid #e2e8f0', background: 'white', borderRadius: '4px', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}
+                            >
+                              <Minus size={12} />
+                            </button>
+                            <span style={{ fontWeight: 700, minWidth: '20px', textAlign: 'center' }}>{parseInt(item.quantity) || 1}</span>
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const newCart = [...cartItems];
+                                newCart[idx].quantity = (Number(newCart[idx].quantity) || 1) + 1;
+                                setCart(newCart);
+                              }}
+                              style={{ border: '1px solid #e2e8f0', background: 'white', borderRadius: '4px', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}
+                            >
+                              <Plus size={12} />
+                            </button>
+                          </div>
                         </div>
-                        <span style={{ fontWeight: 600, color: '#111827', fontSize: '0.9rem' }}>{item.name}</span>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontWeight: 600, color: '#475569', fontSize: '0.95rem' }}>${(item.price * item.qty).toLocaleString()}</span>
-                        <button type="button" onClick={() => setCart(prev => prev.filter(i => i.id !== item.id))} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: 0 }}>✖</button>
-                      </div>
+                      <span style={{ fontWeight: 800, color: '#0f172a' }}>${(parsePrice(item.price) * (parseInt(item.quantity) || 1)).toLocaleString()}</span>
                     </div>
                   ))}
                   <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '10px', paddingTop: '10px', display: 'flex', justifyContent: 'space-between' }}>
@@ -426,80 +688,121 @@ const CheckoutModal = ({ selectedItem, cartItems, setCart, onClose }) => {
                 </div>
               )}
 
+              {isReturningClient && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  backgroundColor: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: '10px',
+                  padding: '10px 14px',
+                  marginBottom: '16px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <UserCheck size={18} color="#16a34a" />
+                    <span style={{ fontSize: '0.82rem', color: '#166534', fontWeight: 600 }}>
+                      ¡Hola de nuevo, {clientName.split(' ')[0] || 'cliente'}! Cargamos tus datos para mayor rapidez.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleClearSavedData}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#15803d',
+                      fontSize: '0.78rem',
+                      textDecoration: 'underline',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      padding: 0
+                    }}
+                  >
+                    Cambiar datos
+                  </button>
+                </div>
+              )}
+
               <div style={{ marginBottom: '15px' }}>
-                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px', display: 'block' }}>Nombre Completo</label>
-                <input type="text" required value={clientName} onChange={e => setClientName(e.target.value)}
-                  style={{ width: '100%', height: '45px', padding: '0 15px', borderRadius: '12px', border: '1px solid #e5e7eb', outline: 'none' }} />
+                <label htmlFor="checkout-name" style={{ fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px', display: 'block' }}>Nombre Completo</label>
+                <input id="checkout-name" type="text" required value={clientName} onChange={e => setClientName(e.target.value)}
+                  className="browser-default luxury-input" />
               </div>
               
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '15px' }}>
+              <div className="input-group-responsive">
                 <div>
-                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px', display: 'block' }}>Celular</label>
-                  <input type="tel" required value={clientPhone} onChange={e => setClientPhone(e.target.value)}
-                    style={{ width: '100%', height: '45px', padding: '0 15px', borderRadius: '12px', border: '1px solid #e5e7eb', outline: 'none' }} />
+                  <label htmlFor="checkout-phone" style={{ fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px', display: 'block' }}>Celular</label>
+                  <input id="checkout-phone" type="tel" required value={clientPhone} onChange={e => setClientPhone(e.target.value)}
+                    className="browser-default luxury-input" />
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px', display: 'block' }}>
+                  <label htmlFor="checkout-email" style={{ fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px', display: 'block' }}>
                     Correo <span style={{ color: '#eab308', marginLeft: '5px', fontWeight: '500' }}>(Revisa que esté correcto para recibir confirmación)</span>
                   </label>
-                  <input type="email" required value={clientEmail} onChange={e => setClientEmail(e.target.value)}
-                    style={{ width: '100%', height: '45px', padding: '0 15px', borderRadius: '12px', border: '1px solid #e5e7eb', outline: 'none' }} />
+                  <input id="checkout-email" type="email" required value={clientEmail} onChange={e => setClientEmail(e.target.value)}
+                    className="browser-default luxury-input" />
                 </div>
               </div>
-
-
 
               {/* Address fields — only for product purchases */}
               {!isService && (
-                <div style={{ marginBottom: '15px', padding: '15px', backgroundColor: '#f0f9ff', borderRadius: '12px', border: '1px solid #bae6fd' }}>
-                  <p style={{ margin: '0 0 10px 0', fontWeight: 700, color: '#0369a1', fontSize: '0.85rem' }}>📦 Datos de Envío (obligatorio)</p>
-                  <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: '0.82rem', fontWeight: 600, color: '#374151', marginBottom: '4px', display: 'block' }}>Ciudad *</label>
+                <div style={{ marginBottom: '20px', padding: '20px', backgroundColor: '#f0f9ff', borderRadius: '16px', border: '1px solid #bae6fd' }}>
+                  <p style={{ margin: '0 0 15px 0', fontWeight: 800, color: '#0369a1', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '1.2rem' }}>📦</span> Datos de Envío (obligatorio)
+                  </p>
+                  <div className="input-group-responsive" style={{ marginBottom: '15px' }}>
+                    <div>
+                      <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px', display: 'block' }}>Ciudad *</label>
                       <input type="text" required value={shippingCity} onChange={e => setShippingCity(e.target.value)} placeholder="Ej: Medellín"
-                        style={{ width: '100%', height: '42px', padding: '0 12px', borderRadius: '10px', border: '1px solid #e5e7eb', outline: 'none', boxSizing: 'border-box' }} />
+                        className="browser-default luxury-input" />
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: '0.82rem', fontWeight: 600, color: '#374151', marginBottom: '4px', display: 'block' }}>Barrio *</label>
+                    <div>
+                      <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px', display: 'block' }}>Barrio *</label>
                       <input type="text" required value={shippingBarrio} onChange={e => setShippingBarrio(e.target.value)} placeholder="Ej: El Poblado"
-                        style={{ width: '100%', height: '42px', padding: '0 12px', borderRadius: '10px', border: '1px solid #e5e7eb', outline: 'none', boxSizing: 'border-box' }} />
+                        className="browser-default luxury-input" />
                     </div>
                   </div>
-                  <div style={{ marginBottom: '10px' }}>
-                    <label style={{ fontSize: '0.82rem', fontWeight: 600, color: '#374151', marginBottom: '4px', display: 'block' }}>Dirección completa *</label>
+                  <div style={{ marginBottom: '15px' }}>
+                    <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px', display: 'block' }}>Dirección completa *</label>
                     <input type="text" required value={shippingAddress} onChange={e => setShippingAddress(e.target.value)} placeholder="Ej: Calle 10 # 43-55"
-                      style={{ width: '100%', height: '42px', padding: '0 12px', borderRadius: '10px', border: '1px solid #e5e7eb', outline: 'none', boxSizing: 'border-box' }} />
+                      className="browser-default luxury-input" />
                   </div>
                   <div>
-                    <label style={{ fontSize: '0.82rem', fontWeight: 600, color: '#374151', marginBottom: '4px', display: 'block' }}>Referencias (Apto, piso, oficina, etc.) *</label>
+                    <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px', display: 'block' }}>Referencias (Apto, piso, oficina, etc.) *</label>
                     <input type="text" required value={shippingRef} onChange={e => setShippingRef(e.target.value)} placeholder="Ej: Apto 302, frente al parque"
-                      style={{ width: '100%', height: '42px', padding: '0 12px', borderRadius: '10px', border: '1px solid #e5e7eb', outline: 'none', boxSizing: 'border-box' }} />
+                      className="browser-default luxury-input" />
                   </div>
                 </div>
               )}
 
               {isService && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', marginBottom: '20px' }}>
-                  <div style={{ flex: '1 1 200px' }}>
+                <div className="input-group-responsive">
+                  <div>
                     <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px', display: 'block' }}>Fecha</label>
                     <input type="date" required min={new Date().toISOString().split('T')[0]} value={reservationDate} onChange={e => setReservationDate(e.target.value)}
-                      style={{ width: '100%', height: '45px', padding: '0 15px', borderRadius: '12px', border: '1px solid #e5e7eb', outline: 'none' }} />
+                      className="browser-default luxury-input" />
                   </div>
-                  <div style={{ flex: '1 1 200px' }}>
-                    <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px', display: 'block' }}>Hora Disponible</label>
-                    <select required className="browser-default" value={reservationTime} onChange={e => setReservationTime(e.target.value)}
-                      style={{ width: '100%', height: '45px', padding: '0 15px', borderRadius: '12px', border: '1px solid #e5e7eb', outline: 'none', backgroundColor: 'white', '&:disabled': { backgroundColor: '#f3f4f6' } }} disabled={!reservationDate}>
-                      <option value="" disabled>Selecciona la hora</option>
-                      {availableTimes.length === 0 && reservationDate && <option value="" disabled>No hay horas disponibles</option>}
-                      {availableTimes.map(t => <option key={t} value={t}>{t}</option>)}
+                  <div>
+                    <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px', display: 'block' }}>Hora</label>
+                    <select required value={reservationTime} onChange={e => setReservationTime(e.target.value)}
+                      className="browser-default luxury-input">
+                      <option value="">Selecciona...</option>
+                      {availableTimes.length > 0 ? (
+                        availableTimes.map((slot, idx) => (
+                          <option key={idx} value={slot}>{slot}</option>
+                        ))
+                      ) : (
+                        <option disabled>No hay horas disponibles</option>
+                      )}
                     </select>
                   </div>
                 </div>
               )}
 
               {isService && (
-                <div style={{ marginTop: '20px', marginBottom: '25px' }}>
-                   <label style={{ fontSize: '0.9rem', fontWeight: 600, color: '#111827', marginBottom: '12px', display: 'block' }}>Elige como prefieres pagar</label>
+                <div style={{ marginBottom: '25px' }}>
+                   <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '12px', display: 'block' }}>Método de Pago</label>
                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                      <div onClick={() => setPaymentMethod('nequi')} style={{ display: 'flex', alignItems: 'center', padding: '15px', border: `2px solid ${paymentMethod === 'nequi' ? darkOlive : '#e5e7eb'}`, borderRadius: '12px', cursor: 'pointer', transition: 'all 0.2s', backgroundColor: paymentMethod === 'nequi' ? '#f8faf6' : 'white' }}>
                        <div style={{ width: '22px', height: '22px', minWidth: '22px', borderRadius: '50%', border: `2px solid ${paymentMethod === 'nequi' ? darkOlive : '#cbd5e1'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '15px', backgroundColor: 'white' }}>
@@ -507,7 +810,6 @@ const CheckoutModal = ({ selectedItem, cartItems, setCart, onClose }) => {
                        </div>
                        <div>
                           <span style={{ display: 'block', fontWeight: 600, color: '#111827', fontSize: '0.95rem' }}>Pagar ahora por Nequi</span>
-                          <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>Asegura tu cupo de inmediato</span>
                        </div>
                      </div>
                      <div onClick={() => setPaymentMethod('presencial')} style={{ display: 'flex', alignItems: 'center', padding: '15px', border: `2px solid ${paymentMethod === 'presencial' ? darkOlive : '#e5e7eb'}`, borderRadius: '12px', cursor: 'pointer', transition: 'all 0.2s', backgroundColor: paymentMethod === 'presencial' ? '#f8faf6' : 'white' }}>
@@ -516,36 +818,105 @@ const CheckoutModal = ({ selectedItem, cartItems, setCart, onClose }) => {
                        </div>
                        <div>
                           <span style={{ display: 'block', fontWeight: 600, color: '#111827', fontSize: '0.95rem' }}>Pagar en la Sede</span>
-                          <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>Programa tu cita y paga allá</span>
                        </div>
                      </div>
                    </div>
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
-                <button type="button" onClick={onClose} style={{ flex: 1, backgroundColor: 'transparent', color: '#6b7280', padding: '16px', borderRadius: '50px', border: '1px solid #e5e7eb', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}>
-                  Cancelar
-                </button>
-                <button type="submit" style={{ flex: 2, backgroundColor: darkOlive, color: 'white', padding: '16px', borderRadius: '50px', border: 'none', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}>
-                  {isService && paymentMethod === 'presencial' ? 'Confirmar Reserva' : 'Continuar al Pago'}
-                </button>
+              {/* Manejo de Datos y Consentimiento Habeas Data (Ley 1581 de 2012) */}
+              <div style={{
+                marginTop: '15px',
+                marginBottom: '15px',
+                padding: '12px 14px',
+                backgroundColor: '#f8fafc',
+                borderRadius: '12px',
+                border: acceptHabeasData ? '1px solid #cbd5e1' : '1px solid #fed7aa',
+                transition: 'border 0.2s'
+              }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', margin: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={acceptHabeasData}
+                    onChange={(e) => setAcceptHabeasData(e.target.checked)}
+                    style={{
+                      marginTop: '3px',
+                      width: '18px',
+                      height: '18px',
+                      accentColor: darkOlive,
+                      cursor: 'pointer',
+                      flexShrink: 0
+                    }}
+                  />
+                  <div style={{ fontSize: '0.82rem', color: '#334155', lineHeight: '1.45' }}>
+                    <span>
+                      {isService ? (
+                        <>Autorizo el tratamiento de mis datos personales según la <strong>Ley 1581 de 2012</strong> (Habeas Data) para la gestión de mi reserva, confirmación de cita y envío de recordatorios y novedades por WhatsApp y correo electrónico.{' '}</>
+                      ) : (
+                        <>Autorizo el tratamiento de mis datos personales según la <strong>Ley 1581 de 2012</strong> (Habeas Data) para la facturación, despacho domiciliario de mis productos, confirmación de envío y novedades de la tienda.{' '}</>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setShowHabeasModal(true);
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        padding: 0,
+                        color: darkOlive,
+                        textDecoration: 'underline',
+                        cursor: 'pointer',
+                        fontWeight: 700,
+                        fontSize: '0.82rem',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '3px'
+                      }}
+                    >
+                      <Info size={13} /> Ver política de datos
+                    </button>
+                  </div>
+                </label>
               </div>
             </form>
           )}
 
           {checkoutStep === 2 && (
             <form onSubmit={handleNextStep}>
-              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-                <h6 style={{ fontWeight: 700, color: '#1e293b', margin: '0 0 5px 0' }}>Transferencia Oficial</h6>
-              </div>
               <div style={{ padding: '20px', border: '2px dashed #cbd5e1', borderRadius: '16px', textAlign: 'center', marginBottom: '25px', backgroundColor: '#f8fafc' }}>
                 <p style={{ fontSize: '0.9rem', color: '#475569', margin: '0 0 10px 0' }}>Transfiere exacto <strong>${totalPrice?.toLocaleString()}</strong> a:</p>
                 <div style={{ fontSize: '1.5rem', letterSpacing: '2px', fontWeight: 800, color: '#0f172a', marginBottom: '15px' }}>321 568 5254</div>
-                <img src={qrNequi} alt="QR Nequi" style={{ width: '150px', height: '150px', objectFit: 'contain', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'block', margin: '0 auto' }} />
+                <div style={{ 
+                  width: '100%',
+                  maxWidth: '280px',
+                  height: '240px', 
+                  overflow: 'hidden', 
+                  margin: '0 auto 15px auto', 
+                  borderRadius: '16px', 
+                  border: '1px solid #e2e8f0', 
+                  backgroundColor: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.05)'
+                }}>
+                  <img 
+                    src={qrNequi} 
+                    alt="QR Nequi" 
+                    style={{ 
+                      width: '100%', 
+                      transform: 'scale(1.8) translateY(15%)', 
+                      transformOrigin: 'center center',
+                      display: 'block'
+                    }} 
+                  />
+                </div>
+                <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '10px 0 0 0' }}>💡 Puedes escanear el código directamente o guardar la imagen.</p>
               </div>
               <div style={{ marginBottom: '20px' }}>
-                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '10px', display: 'block' }}>Comprobante de transacción</label>
                 <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100px', border: '1px solid #cbd5e1', borderRadius: '12px', cursor: 'pointer', backgroundColor: receiptImage ? '#f0fdf4' : '#fff' }}>
                   {receiptImage ? (
                     <><CheckCircle2 color="#16a34a" size={24} style={{ marginBottom: '5px' }} /> <span style={{ color: '#16a34a', fontSize: '0.9rem', fontWeight: 600 }}>¡Foto adjunta!</span></>
@@ -554,15 +925,6 @@ const CheckoutModal = ({ selectedItem, cartItems, setCart, onClose }) => {
                   )}
                   <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => setReceiptImage(e.target.files[0])} />
                 </label>
-              </div>
-              
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button type="button" onClick={() => setCheckoutStep(1)} style={{ flex: 1, backgroundColor: 'transparent', color: '#6b7280', padding: '16px', borderRadius: '50px', border: '1px solid #e5e7eb', fontWeight: 600, cursor: 'pointer' }}>
-                  Atrás
-                </button>
-                <button type="submit" disabled={isSubmitting || !receiptImage} style={{ flex: 2, backgroundColor: darkOlive, color: 'white', padding: '16px', borderRadius: '50px', border: 'none', fontWeight: 600, cursor: (isSubmitting || !receiptImage) ? 'not-allowed' : 'pointer', opacity: (isSubmitting || !receiptImage) ? 0.7 : 1 }}>
-                  {isSubmitting ? 'Cargando...' : 'Confirmar'}
-                </button>
               </div>
             </form>
           )}
@@ -575,32 +937,215 @@ const CheckoutModal = ({ selectedItem, cartItems, setCart, onClose }) => {
               <h4 style={{ margin: '0 0 10px 0', color: '#0f172a', fontWeight: 800 }}>
                 {isService ? '¡Solicitud Recibida!' : '¡Pedido Recibido!'}
               </h4>
-              <p style={{ color: '#475569', fontSize: '1rem', lineHeight: '1.5', margin: '0 0 20px 0' }}>
+              <p style={{ color: '#475569', fontSize: '1rem', lineHeight: '1.5', margin: '0 0 25px 0' }}>
                 {isService && paymentMethod === 'presencial'
-                  ? '¡Cita agendada exitosamente! Revisa tu correo electrónico para ver la confirmación. ¡Te esperamos!'
-                  : isService
-                  ? 'El equipo está verificando el pago y recibirás un correo apenas sea aprobado.'
-                  : '✅ Andrea revisará el stock de tu pedido y te escribirá por WhatsApp con los datos de pago en unos minutos. ¡No necesitas hacer nada más por ahora!'}
+                  ? '¡Cita agendada exitosamente!'
+                  : '✅ Andrea verificará tu solicitud en breve.'}
               </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', alignItems: 'center' }}>
-                <a 
-                  href={isService
-                    ? `https://wa.me/573155217625?text=${encodeURIComponent('Hola Andrea! Acabe de registrar una cita para ' + itemName + ' el ' + reservationDate + ' a las ' + reservationTime + '. Mi nombre es ' + clientName + ' y mi celular es ' + clientPhone + '.')}`
-                    : `https://wa.me/573155217625?text=${encodeURIComponent('Hola Andrea! Acabo de realizar un pedido en tu pagina web. Mi nombre es ' + clientName + ' y el total de mis productos es $' + (confirmedTotal || totalPrice || 0).toLocaleString() + '. Quedo atento a que me confirmes la disponibilidad y el costo del envio para realizar el pago. Gracias!')}`
+              
+              <button 
+                onClick={() => {
+                  let message = "";
+                  if (isService) {
+                    message = `✨ *Nueva Cita Agendada - Andrea Cardona SPA* ✨\n\nHola Andrea, acabo de agendar una cita desde la web:\n\n💆‍♀️ *Servicio:* ${selectedItem?.item?.name}\n📅 *Fecha:* ${reservationDate}\n⏰ *Hora:* ${reservationTime}\n👤 *Cliente:* ${clientName}\n\n*Favor confirmar mi cita y enviarme cualquier instrucción adicional.* 🙏`;
+                  } else {
+                    const products = capturedProductList || cartItems.map(item => `- ${item.quantity}x ${item.name}`).join('\n');
+                    const total = confirmedTotal || totalPrice;
+                    message = `✨ *Nuevo Pedido - Andrea Cardona SPA* ✨\n\nHola Andrea, acabo de realizar un pedido desde la web:\n\n------------------------------------------\n${products}\n------------------------------------------\n💰 *Total a pagar: $${total.toLocaleString()}*\n👤 *Cliente:* ${clientName}\n\n*Favor confirmar mi pedido y enviarme los medios de pago.* 🙏`;
                   }
-                  target="_blank" 
-                  rel="noopener noreferrer" 
-                  style={{ backgroundColor: '#25D366', color: 'white', padding: '14px 25px', borderRadius: '50px', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 10px rgba(37,211,102,0.3)', width: '100%', justifyContent: 'center', boxSizing: 'border-box' }}
-                >
-                   Avisar por WhatsApp
-                </a>
-                <button onClick={onClose} style={{ backgroundColor: 'transparent', color: darkOlive, padding: '12px 25px', borderRadius: '50px', border: `2px solid ${darkOlive}`, fontWeight: 600, cursor: 'pointer', width: '100%' }}>
-                  Volver al inicio
-                </button>
-              </div>
+                  const url = `https://wa.me/573155217625?text=${encodeURIComponent(message)}`;
+                  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                  if (isMobile) {
+                    window.location.assign(url);
+                  } else {
+                    window.open(url, '_blank');
+                  }
+                }}
+                style={{ 
+                  backgroundColor: '#25D366', 
+                  color: 'white', 
+                  border: 'none', 
+                  borderRadius: '12px', 
+                  padding: '14px 24px', 
+                  fontWeight: 700, 
+                  cursor: 'pointer', 
+                  display: 'inline-flex', 
+                  alignItems: 'center', 
+                  gap: '10px',
+                  boxShadow: '0 4px 15px rgba(37, 211, 102, 0.2)',
+                  transition: 'transform 0.2s'
+                }}
+                onMouseOver={e => e.currentTarget.style.transform = 'scale(1.02)'}
+                onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}
+               >
+                 <MessageCircle size={20} /> Notificar por WhatsApp
+               </button>
             </div>
           )}
         </div>
+
+        <div className="luxury-modal-footer">
+           <button onClick={checkoutStep === 3 ? onClose : () => (checkoutStep > 1 ? setCheckoutStep(checkoutStep - 1) : onClose())} className="btn-secondary">
+             {checkoutStep === 3 ? 'Cerrar' : 'Atrás'}
+           </button>
+           {checkoutStep < 3 && (
+             <button onClick={handleNextStep} className="btn-primary" disabled={isSubmitting}>
+               {isSubmitting ? 'Procesando...' : (checkoutStep === 1 ? 'Continuar' : 'Confirmar Pago')}
+             </button>
+           )}
+        </div>
+
+        {/* Modal Informativo Detallado de Política de Tratamiento de Datos (Ley 1581 de 2012) */}
+        {showHabeasModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 1200,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px'
+          }}>
+            <div style={{
+              backgroundColor: 'white',
+              borderRadius: '20px',
+              maxWidth: '520px',
+              width: '100%',
+              maxHeight: '85vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+              overflow: 'hidden',
+              animation: 'fadeIn 0.2s ease-out'
+            }}>
+              {/* Header de la política */}
+              <div style={{
+                padding: '18px 24px',
+                borderBottom: '1px solid #f1f5f9',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                backgroundColor: '#f8fafc'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '10px',
+                    backgroundColor: '#ecfdf5',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: darkOlive
+                  }}>
+                    <ShieldCheck size={20} />
+                  </div>
+                  <div>
+                    <h6 style={{ margin: 0, fontWeight: 700, color: '#0f172a', fontSize: '0.95rem' }}>
+                      Tratamiento de Datos Personales
+                    </h6>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Habeas Data · Ley 1581 de 2012</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowHabeasModal(false)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: '#94a3b8',
+                    padding: '6px',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center'
+                  }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Contenido legal comprensible */}
+              <div style={{
+                padding: '20px 24px',
+                overflowY: 'auto',
+                fontSize: '0.85rem',
+                color: '#475569',
+                lineHeight: '1.6'
+              }}>
+                <p style={{ marginTop: 0 }}>
+                  En cumplimiento de la <strong>Ley Estatutaria 1581 de 2012</strong> y el Decreto 1377 de 2013 de Colombia, <strong>Andrea Cardona SPA</strong> (Chinchiná, Caldas) le informa que como titular de los datos personales suministrados voluntariamente mediante esta plataforma web, estos serán tratados bajo estrictos principios de confidencialidad, seguridad y transparencia.
+                </p>
+
+                <div style={{ backgroundColor: '#f8fafc', padding: '12px 14px', borderRadius: '12px', border: '1px solid #e2e8f0', margin: '12px 0' }}>
+                  <h6 style={{ color: '#0f172a', fontWeight: 700, fontSize: '0.86rem', margin: '0 0 6px 0' }}>
+                    1. Finalidades Autorizadas del Tratamiento:
+                  </h6>
+                  <ul style={{ paddingLeft: '18px', margin: 0, fontSize: '0.82rem' }}>
+                    <li style={{ marginBottom: '4px' }}>Gestión, agendamiento, confirmación y recordatorio oportuno de sus citas o pedidos de productos.</li>
+                    <li style={{ marginBottom: '4px' }}>Vinculación y actualización unificada de su historial estético y ficha técnica sin duplicidad en la base de datos.</li>
+                    <li style={{ marginBottom: '4px' }}>Envío de avisos de estado, recordatorios de puntualidad y notas de cuidado por WhatsApp y correo electrónico.</li>
+                    <li>Comunicaciones de fidelización, promociones de temporada, beneficios de cumpleaños y novedades del spa.</li>
+                  </ul>
+                </div>
+
+                <div style={{ backgroundColor: '#fffbeb', padding: '12px 14px', borderRadius: '12px', border: '1px solid #fef3c7', margin: '12px 0' }}>
+                  <h6 style={{ color: '#92400e', fontWeight: 700, fontSize: '0.86rem', margin: '0 0 4px 0' }}>
+                    2. Compromiso de Cero Cesión a Terceros:
+                  </h6>
+                  <p style={{ margin: 0, fontSize: '0.82rem', color: '#78350f' }}>
+                    Sus datos de contacto jamás serán vendidos, transferidos ni compartidos con empresas externas o bases de datos comerciales de terceros.
+                  </p>
+                </div>
+
+                <div style={{ backgroundColor: '#f0fdf4', padding: '12px 14px', borderRadius: '12px', border: '1px solid #bbf7d0', margin: '12px 0' }}>
+                  <h6 style={{ color: '#166534', fontWeight: 700, fontSize: '0.86rem', margin: '0 0 4px 0' }}>
+                    3. Derechos del Titular (Habeas Data):
+                  </h6>
+                  <p style={{ margin: 0, fontSize: '0.82rem', color: '#14532d' }}>
+                    Usted podrá en cualquier momento conocer, actualizar, rectificar o solicitar la supresión de sus datos personales notificándonos al WhatsApp <strong>+57 315 521 7625</strong> o al correo <strong>andrea.cardona.mar@outlook.com</strong>.
+                  </p>
+                </div>
+              </div>
+
+              {/* Footer del modal informativo */}
+              <div style={{
+                padding: '14px 24px',
+                borderTop: '1px solid #f1f5f9',
+                backgroundColor: '#f8fafc',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '10px'
+              }}>
+                <button
+                  type="button"
+                  onClick={() => setShowHabeasModal(false)}
+                  className="btn-secondary"
+                  style={{ padding: '8px 16px', fontSize: '0.84rem' }}
+                >
+                  Cerrar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAcceptHabeasData(true);
+                    setShowHabeasModal(false);
+                    window.M?.toast({ html: 'Autorización registrada correctamente', classes: 'green rounded' });
+                  }}
+                  className="btn-primary"
+                  style={{ padding: '8px 20px', fontSize: '0.84rem' }}
+                >
+                  Autorizo y Acepto
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

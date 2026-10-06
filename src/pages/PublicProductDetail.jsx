@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import CheckoutModal from '../components/CheckoutModal';
-import { ArrowLeft, ShoppingBag, Info, Sparkles, ChevronLeft, Menu as MenuIcon, MessageCircle } from 'lucide-react';
+import { ArrowLeft, ShoppingBag, Info, Sparkles, ChevronLeft, Menu as MenuIcon, MessageCircle, X } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import spaLogo from '../assets/Logo.jpeg';
 
@@ -58,7 +58,13 @@ const PublicProductDetail = () => {
 
   const handleBuyNow = () => {
     addToCart(product);
+    setSelectedItem(null); // Aseguramos que el checkout sepa que es una compra global del carrito
     setCheckoutOpen(true);
+  };
+
+  const handleAddToCart = () => {
+    addToCart(product);
+    // Solo añadimos al carrito, no abrimos el modal
   };
 
   if (loading) {
@@ -73,18 +79,77 @@ const PublicProductDetail = () => {
     return (
       <div style={{ height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column' }}>
         <h3 style={{ fontFamily: '"Playfair Display", serif' }}>Producto no encontrado</h3>
-        <Link to="/inicio" style={{ color: olive, fontWeight: 600, marginTop: '20px' }}>Volver a la tienda</Link>
+        <Link to="/inicio#productos" style={{ color: olive, fontWeight: 600, marginTop: '20px' }}>Volver a la tienda</Link>
       </div>
     );
   }
 
   return (
-    <div style={{ fontFamily: '"Inter", sans-serif', backgroundColor: '#FCFBF8', minHeight: '100vh', color: '#1f2937', paddingTop: '130px' }}>
+    <div className="prevent-overflow" style={{ fontFamily: '"Inter", sans-serif', backgroundColor: '#FCFBF8', minHeight: '100vh', color: '#1f2937', paddingTop: '130px' }}>
+      
+      <style dangerouslySetInnerHTML={{__html: `
+        .mobile-menu-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: rgba(0,0,0,0.5);
+          z-index: 10001;
+          opacity: 0;
+          visibility: hidden;
+          transition: all 0.3s ease;
+        }
+        .mobile-menu-overlay.active {
+          opacity: 1;
+          visibility: visible;
+        }
+        .mobile-menu-drawer {
+          position: fixed;
+          top: 0;
+          right: -100%;
+          width: 80%;
+          max-width: 300px;
+          height: 100%;
+          background: white;
+          z-index: 10002;
+          padding: 40px 30px;
+          transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+          box-shadow: -10px 0 30px rgba(0,0,0,0.1);
+        }
+        .mobile-menu-drawer.active {
+          right: 0;
+        }
+        
+        @media (max-width: 768px) {
+          .sticky-mobile-reset {
+            position: relative !important;
+            top: 0 !important;
+          }
+        }
+      `}} />
+
+      {/* Mobile Menu UI */}
+      <div className={`mobile-menu-overlay ${isMobileMenuOpen ? 'active' : ''}`} onClick={() => setIsMobileMenuOpen(false)} />
+      <div className={`mobile-menu-drawer ${isMobileMenuOpen ? 'active' : ''}`}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '40px' }}>
+          <button onClick={() => setIsMobileMenuOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+            <X size={32} color={slate} />
+          </button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
+          <Link to="/inicio" onClick={() => setIsMobileMenuOpen(false)} style={{ color: slate, fontWeight: 600, fontSize: '1.4rem', textDecoration: 'none' }}>Inicio</Link>
+          <Link to="/inicio#servicios" onClick={() => setIsMobileMenuOpen(false)} style={{ color: slate, fontWeight: 600, fontSize: '1.4rem', textDecoration: 'none' }}>Servicios</Link>
+          <Link to="/inicio#productos" onClick={() => setIsMobileMenuOpen(false)} style={{ color: slate, fontWeight: 600, fontSize: '1.4rem', textDecoration: 'none' }}>Productos</Link>
+          <Link to="/inicio#contacto" onClick={() => setIsMobileMenuOpen(false)} style={{ color: slate, fontWeight: 600, fontSize: '1.4rem', textDecoration: 'none' }}>Contacto</Link>
+        </div>
+      </div>
       
       {/* Navbar Minimalist with Shrink Effect (Consistent) */}
       <nav style={{ 
         backgroundColor: 'rgba(255, 255, 255, 0.98)', 
         backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)',
         height: scrolled ? '70px' : '130px', 
         display: 'flex',
         alignItems: 'center',
@@ -105,27 +170,27 @@ const PublicProductDetail = () => {
             <img src={config?.imageUrl || spaLogo} alt="Logo" style={{ height: '100%', width: 'auto', objectFit: 'contain' }} />
           </Link>
           
-          <div className="hide-on-small-only" style={{ display: 'flex', gap: scrolled ? '20px' : '25px', alignItems: 'center', transition: 'all 0.4s ease' }}>
+          <div className="hide-mobile" style={{ display: 'flex', gap: scrolled ? '20px' : '25px', alignItems: 'center', transition: 'all 0.4s ease' }}>
             <Link to="/inicio" style={{ color: slate, fontWeight: 600, fontSize: scrolled ? '0.85rem' : '1.1rem', textDecoration: 'none', transition: 'all 0.4s' }}>Inicio</Link>
             <Link to="/inicio#servicios" style={{ color: slate, fontWeight: 600, fontSize: scrolled ? '0.85rem' : '1.1rem', textDecoration: 'none', transition: 'all 0.4s' }}>Servicios</Link>
             <Link to="/inicio#productos" style={{ color: slate, fontWeight: 600, fontSize: scrolled ? '0.85rem' : '1.1rem', textDecoration: 'none', transition: 'all 0.4s' }}>Productos</Link>
             <Link to="/inicio#contacto" style={{ color: slate, fontWeight: 600, fontSize: scrolled ? '0.85rem' : '1.1rem', textDecoration: 'none', transition: 'all 0.4s' }}>Contacto</Link>
           </div>
 
-          <button className="hide-on-med-and-up" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} style={{ background: 'none', border: 'none', color: slate, cursor: 'pointer' }}>
+          <button className="hide-desktop" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} style={{ background: 'none', border: 'none', color: slate, cursor: 'pointer' }}>
             <MenuIcon size={28} />
           </button>
         </div>
       </nav>
 
       <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '40px 5vw 100px 5vw' }}>
-        <Link to="/inicio" style={{ textDecoration: 'none', color: lightSlate, display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 500, fontSize: '0.9rem', marginBottom: '30px' }}>
+        <Link to="/inicio#productos" style={{ textDecoration: 'none', color: lightSlate, display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 500, fontSize: '0.9rem', marginBottom: '30px' }}>
           <ChevronLeft size={20} /> Volver a la colección
         </Link>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '60px', alignItems: 'start' }}>
           
           {/* Image Gallery Side */}
-          <div style={{ position: 'sticky', top: '100px' }}>
+          <div className="sticky-mobile-reset" style={{ position: 'sticky', top: '150px' }}>
             <div style={{ width: '100%', aspectRatio: '1/1', backgroundColor: 'white', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {product.imageUrl ? (
                 <img src={product.imageUrl} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '30px' }} />
@@ -183,6 +248,12 @@ const PublicProductDetail = () => {
               >
                 <ShoppingBag size={20} /> Comprar Ahora
               </button>
+              <button 
+                onClick={handleAddToCart}
+                style={{ flex: 1, backgroundColor: 'white', color: olive, border: `2px solid ${olive}`, borderRadius: '8px', padding: '18px 30px', fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', cursor: 'pointer' }}
+              >
+                <ShoppingBag size={20} /> Añadir al carrito
+              </button>
             </div>
             
             <p style={{ marginTop: '20px', fontSize: '0.85rem', color: lightSlate, textAlign: 'center' }}>
@@ -205,7 +276,7 @@ const PublicProductDetail = () => {
 
       {/* Floating WhatsApp Button */}
       <a href="https://wa.me/573155217625?text=Hola,%20tengo%20una%20duda%20sobre%20este%20producto." target="_blank" rel="noreferrer" style={{ position: 'fixed', bottom: '30px', right: '30px', backgroundColor: '#25D366', color: 'white', borderRadius: '50px', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '10px', textDecoration: 'none', boxShadow: '0 10px 25px rgba(37, 211, 102, 0.3)', zIndex: 1000, fontWeight: 500, fontSize: '0.95rem' }} className="hover-lift">
-         <MessageCircle size={22} /> <span className="hide-on-small-only">¿Dudas? Escríbenos</span>
+         <MessageCircle size={22} /> <span className="hide-mobile">¿Dudas? Escríbenos</span>
       </a>
 
       {checkoutOpen && (

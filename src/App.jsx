@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import Landing from './pages/Landing';
 import PublicServiceDetail from './pages/PublicServiceDetail';
 import PublicProductDetail from './pages/PublicProductDetail';
+import PublicCourseDetail from './pages/PublicCourseDetail';
 import { CartProvider } from './context/CartContext';
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
           <Route path="/inicio" element={<Landing />} />
           <Route path="/servicio/:id" element={<PublicServiceDetail />} />
           <Route path="/producto/:id" element={<PublicProductDetail />} />
+          <Route path="/curso/:id" element={<PublicCourseDetail />} />
           <Route path="/dashboard" element={<Dashboard />} />
         </Routes>
       </BrowserRouter>

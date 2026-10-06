@@ -20,6 +20,7 @@ const Overview = ({ onNavigateToReports }) => {
   
   const [areaData, setAreaData] = useState([]);
   const [pieData, setPieData] = useState([]);
+  const [staffRanking, setStaffRanking] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -51,6 +52,7 @@ const Overview = ({ onNavigateToReports }) => {
         let ingresosMesActual = 0;
         let transaccionesMesActual = 0;
         let ingresosPorServicio = {};
+        let ingresosPorStaff = {};
         let citasProgramadasActuales = 0;
 
         let gastosMesActual = 0;
@@ -97,7 +99,15 @@ const Overview = ({ onNavigateToReports }) => {
           if (c.pagado) {
             const price = servicePrices[c.serviceId] || 0;
             const sName = serviceNames[c.serviceId] || c.serviceName || 'Otras Citas';
+            const staffName = c.staffName || 'Sin asignar';
             addIngreso(c.date, price, sName);
+
+            // Staff Ranking (Solo mes actual)
+            const [yyyyC, mmC] = selectedMonth.split('-');
+            const cDate = parseISO(c.date);
+            if (isValid(cDate) && isSameMonth(cDate, new Date(Number(yyyyC), Number(mmC) - 1, 1))) {
+              ingresosPorStaff[staffName] = (ingresosPorStaff[staffName] || 0) + price;
+            }
           }
         });
 
@@ -106,10 +116,18 @@ const Overview = ({ onNavigateToReports }) => {
           if (p.sesiones && Array.isArray(p.sesiones)) {
             p.sesiones.forEach(s => {
               addCitaProgramada(s.fecha);
-              if (s.pagado && s.fecha) {
+              if (s.pagado) {
                 const price = Number(p.precioPorSesion || 0);
-                const sName = p.tratamiento || 'Sesión General';
+                const sName = p.tratamiento || 'Sesión';
+                const staffName = p.profesionalAsignado || 'Sin asignar';
                 addIngreso(s.fecha, price, sName);
+
+                // Staff Ranking (Solo mes actual)
+                const [yyyyC, mmC] = selectedMonth.split('-');
+                const sDate = parseISO(s.fecha);
+                if (isValid(sDate) && isSameMonth(sDate, new Date(Number(yyyyC), Number(mmC) - 1, 1))) {
+                  ingresosPorStaff[staffName] = (ingresosPorStaff[staffName] || 0) + price;
+                }
               }
             });
           }
@@ -118,7 +136,8 @@ const Overview = ({ onNavigateToReports }) => {
         // Pedidos (Web E-commerce & POS)
         try {
           pedidos.forEach(p => {
-            if (p.status?.includes('Confirmada') || p.status?.includes('Pagado') || p.status?.includes('Aprobado')) {
+            const isRefund = p.status === 'Reembolsado' || (p.amount && p.amount < 0);
+            if (p.status?.includes('Confirmada') || p.status?.includes('Pagado') || p.status?.includes('Aprobado') || isRefund) {
                let dateStr = '';
                if (p.createdAt?.toDate) {
                  dateStr = p.createdAt.toDate().toISOString();
@@ -130,7 +149,8 @@ const Overview = ({ onNavigateToReports }) => {
 
                if (dateStr) {
                  const price = Number(p.amount || 0);
-                 const typeName = p.type === 'pos' ? 'Venta POS Mostrador' : 'Venta E-Commerce';
+                 const typeName = p.type === 'pos' ? 'Venta POS Mostrador' : 
+                                p.type === 'academia' ? 'Academia (Venta/Reembolso)' : 'Venta E-Commerce';
                  addIngreso(dateStr, price, typeName);
                }
             }
@@ -192,8 +212,14 @@ const Overview = ({ onNavigateToReports }) => {
           ticketPromedio,
           tasaOcupacion: ocupacion
         });
+        const finalStaffRanking = Object.keys(ingresosPorStaff).map(key => ({
+          name: key,
+          value: ingresosPorStaff[key]
+        })).sort((a, b) => b.value - a.value).slice(0, 5);
+
         setAreaData(aData);
         setPieData(pData);
+        setStaffRanking(finalStaffRanking);
 
       } catch (error) {
         console.error("Error fetching BI stats:", error);
@@ -410,6 +436,48 @@ const Overview = ({ onNavigateToReports }) => {
                     />
                   </PieChart>
                 </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* NUEVA SECCIÓN: TOP STAFF */}
+      <div className="row">
+        <div className="col s12">
+          <div className="card-panel" style={{ padding: '2rem', borderRadius: '20px', boxShadow: '0 15px 35px -5px rgba(0,0,0,0.05)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h5 style={{ fontWeight: 800, margin: 0, color: '#0f172a', fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Activity size={20} color="#10b981" /> Desempeño por Profesional (Mes Actual)
+              </h5>
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '20px' }}>
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="skeleton-box" style={{ height: '80px', borderRadius: '12px' }} />
+                ))
+              ) : staffRanking.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '0.9rem' }}>No hay datos suficientes para generar el ranking.</p>
+              ) : (
+                staffRanking.map((staff, idx) => (
+                  <div key={idx} style={{ 
+                    backgroundColor: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0',
+                    display: 'flex', alignItems: 'center', gap: '12px', transition: 'transform 0.2s ease'
+                  }} className="staff-card-hover">
+                    <div style={{ 
+                      width: '40px', height: '40px', borderRadius: '10px', backgroundColor: idx === 0 ? '#fef3c7' : '#e0f2fe',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', color: idx === 0 ? '#d97706' : '#0284c7',
+                      fontWeight: 800, fontSize: '1.1rem'
+                    }}>
+                      {idx + 1}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ margin: 0, fontWeight: 700, color: '#1e293b', fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{staff.name}</p>
+                      <p style={{ margin: 0, color: '#10b981', fontWeight: 600, fontSize: '0.85rem' }}>{formatCOP(staff.value)}</p>
+                    </div>
+                  </div>
+                ))
               )}
             </div>
           </div>

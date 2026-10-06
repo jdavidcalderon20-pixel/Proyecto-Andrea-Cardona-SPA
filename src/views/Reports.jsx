@@ -8,17 +8,7 @@ import { es } from 'date-fns/locale';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-// Mock chart data for revenue until a Billing module is requested
-const mockDailyRevenue = [
-  { name: '10 Mar', servicios: 400, productos: 240 },
-  { name: '11 Mar', servicios: 300, productos: 139 },
-  { name: '12 Mar', servicios: 200, productos: 980 },
-  { name: '13 Mar', servicios: 278, productos: 390 },
-  { name: '14 Mar', servicios: 189, productos: 480 },
-  { name: '15 Mar', servicios: 239, productos: 380 },
-  { name: '16 Mar', servicios: 349, productos: 430 },
-];
-
+// Colors for charts
 const COLORS = ['#10b981', '#0284c7', '#e11d48', '#d97706', '#8b5cf6', '#d4af37'];
 
 const Reports = ({ initialFilters }) => {
@@ -31,6 +21,9 @@ const Reports = ({ initialFilters }) => {
   const [selectedCategory, setSelectedCategory] = useState(initialFilters?.category || 'Todas');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('Todos');
   const [reportSummary, setReportSummary] = useState({ totalRegistros: 0, utilidadNeta: 0, ingresosBrutos: 0 });
+  const [dailyRevenue, setDailyRevenue] = useState([]);
+  const [productSalesData, setProductSalesData] = useState([]);
+  const [loyaltyData, setLoyaltyData] = useState([]);
 
   const formatCOP = (val) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(val);
 
@@ -142,13 +135,17 @@ const Reports = ({ initialFilters }) => {
                  }
               }
             });
-          }
+           }
         });
 
         // Evaluar Pedidos
         try {
           pedidosData.forEach(p => {
-            if (p.status?.includes('Confirmada') || p.status?.includes('Pagado') || p.status?.includes('Aprobado')) {
+            const isAcademia = p.type === 'academia' || p.itemName?.toLowerCase().includes('academia') || p.itemName?.toLowerCase().includes('curso');
+            const isRefund = p.status === 'Reembolsado' || (p.amount && p.amount < 0);
+            const isConfirmed = p.status?.includes('Confirmada') || p.status?.includes('Pagado') || p.status?.includes('Aprobado') || isRefund;
+
+            if (isConfirmed) {
                let dStr = '';
                if (p.createdAt?.toDate) dStr = p.createdAt.toDate().toISOString();
                else if (p.createdAt) dStr = new Date(p.createdAt).toISOString();
@@ -157,8 +154,12 @@ const Reports = ({ initialFilters }) => {
                if (!dStr) return;
                const d = parseISO(dStr);
                if (isValid(d) && d >= start && d <= end) {
-                   const sn = p.type === 'pos' ? 'Venta Fija (Local)' : 'Venta Producto Web';
-                   let cat = 'Productos';
+                   let sn = 'Venta';
+                   if (p.type === 'pos') sn = 'Venta Fija (Local)';
+                   else if (p.type === 'academia') sn = isRefund ? 'Reembolso Academia' : 'Inscripción Academia';
+                   else sn = 'Venta Producto Web';
+
+                   let cat = isAcademia ? 'Academia' : 'Productos';
                    
                    if (selectedCategory !== 'Todas' && cat !== selectedCategory && sn !== selectedCategory) {
                      return;
@@ -176,13 +177,13 @@ const Reports = ({ initialFilters }) => {
                      clientName: p.clientName || 'Cliente General', 
                      serviceName: p.itemName || sn, 
                      staffName: 'N/A', 
-                     estadoExcel: formatCOP(priceItem),
+                     estadoExcel: isRefund ? `REEMBOLSO (${formatCOP(priceItem)})` : formatCOP(priceItem),
                      metodoExcel: method
                    };
                    matchedCitas.push(sCopy);
                    registrosMes++;
                    demoCounts[cat] = (demoCounts[cat] || 0) + 1;
-                   ingresosCalculados += priceItem;
+                   ingresosCalculados += priceItem; // Sumará el valor negativo si es reembolso
                }
             }
           });
@@ -208,6 +209,127 @@ const Reports = ({ initialFilters }) => {
         setAppointments(matchedCitas);
         setProducts(productosData);
         setServiceDemographics(newDemographics.length > 0 ? newDemographics : [{name: 'Sin datos', value: 100}]);
+        
+        // --- LEALTAD DE CLIENTES (Nuevos vs Recurrentes) ---
+        const clientHistory = {};
+        
+        // Procesar todo el historial (sin filtro de fecha) para determinar quién es recurrente
+        citasData.forEach(c => {
+          if (!c.date) return;
+          const cid = c.clientPhone || c.clientId || c.clientName;
+          if (!cid) return;
+          if (!clientHistory[cid]) clientHistory[cid] = [];
+          clientHistory[cid].push(parseISO(`${c.date}T12:00:00`));
+        });
+        
+        sesionesData.forEach(p => {
+          if (p.sesiones && Array.isArray(p.sesiones)) {
+            p.sesiones.forEach(s => {
+              if (!s.fecha) return;
+              const cid = p.pacientePhone || p.pacienteId || p.pacienteNombre;
+              if (!cid) return;
+              if (!clientHistory[cid]) clientHistory[cid] = [];
+              clientHistory[cid].push(parseISO(`${s.fecha}T12:00:00`));
+            });
+          }
+        });
+
+        let nuevosCount = 0;
+        let recurrentesCount = 0;
+        const processedClientsInPeriod = new Set();
+
+        // Identificar lealtad de los clientes que visitaron en EL PERIODO
+        matchedCitas.forEach(apt => {
+          const cid = apt.clientPhone || apt.clientId || apt.clientName || apt.pacientePhone || apt.pacienteId;
+          if (!cid || processedClientsInPeriod.has(cid)) return;
+          processedClientsInPeriod.add(cid);
+
+          const visits = clientHistory[cid] || [];
+          // Un cliente es "Nuevo" si su PRIMERA visita de la historia está dentro del periodo
+          const firstVisit = new Date(Math.min(...visits.map(v => v.getTime())));
+          
+          if (firstVisit >= start && firstVisit <= end) {
+            nuevosCount++;
+          } else {
+            recurrentesCount++;
+          }
+        });
+
+        setLoyaltyData([
+          { name: 'Nuevos', value: nuevosCount },
+          { name: 'Recurrentes', value: recurrentesCount }
+        ]);
+
+        // --- PROCESAMIENTO PARA GRÁFICAS ---
+        
+        // 1. Agregación Diaria (Bar Chart)
+        const dailyMap = {};
+        // Generar mapa de días vacíos en el rango para que no haya saltos
+        let current = new Date(start);
+        while (current <= end) {
+          const dateStr = format(current, 'dd MMM');
+          dailyMap[dateStr] = { name: dateStr, servicios: 0, productos: 0 };
+          current.setDate(current.getDate() + 1);
+        }
+
+        // 2. Agregación por Servicio/Categoría (Pie Chart - Ahora por $)
+        const revenueByCategory = {};
+        
+        // 3. Agregación por Producto Específico
+        const revenueByProduct = {};
+
+        matchedCitas.forEach(apt => {
+           const d = parseISO(`${apt.date}T12:00:00`);
+           const dateLabel = format(d, 'dd MMM');
+           const price = Number(String(apt.estadoExcel).replace(/[^\d]/g, '')) || 0;
+           const isPaid = apt.pagado || (apt.estadoExcel && !String(apt.estadoExcel).includes('Pendiente'));
+           
+           if (isPaid && dailyMap[dateLabel]) {
+              // Determinar si es servicio o producto para el stack del bar chart
+              const isProduct = apt.serviceName && (apt.serviceName.toLowerCase().includes('venta') || apt.serviceName.toLowerCase().includes('producto'));
+              
+              if (isProduct) {
+                dailyMap[dateLabel].productos += price;
+              } else {
+                dailyMap[dateLabel].servicios += price;
+              }
+
+              // Agregación para el Pie Chart (Categorías)
+              // Reutilizamos la lógica de 'cat' si existiera, o usamos serviceName
+              let cat = 'Otros';
+              const sn = apt.serviceName || '';
+              if(sn.toLowerCase().includes('masaje') || sn.toLowerCase().includes('relajante')) cat = 'Masajes';
+              else if (sn.toLowerCase().includes('facial') || sn.toLowerCase().includes('limpieza')) cat = 'Faciales';
+              else if (sn.toLowerCase().includes('corporal') || sn.toLowerCase().includes('madero')) cat = 'Corporales';
+              else if (sn.toLowerCase().includes('bronceado')) cat = 'Bronceado';
+              else if (sn.toLowerCase().includes('sesión') || sn.toLowerCase().includes('paquete')) cat = 'Sesiones';
+              else if (sn.toLowerCase().includes('academia') || sn.toLowerCase().includes('inscripción')) cat = 'Academia';
+              else if (isProduct) cat = 'Productos';
+
+              revenueByCategory[cat] = (revenueByCategory[cat] || 0) + price;
+              
+              // Si es producto, guardamos el nombre específico para el top
+              if (isProduct) {
+                revenueByProduct[sn] = (revenueByProduct[sn] || 0) + price;
+              }
+           }
+        });
+
+        const dailyRevenueArray = Object.values(dailyMap);
+        
+        const finalDemographics = Object.keys(revenueByCategory).map(k => ({
+          name: k,
+          value: revenueByCategory[k]
+        })).sort((a, b) => b.value - a.value);
+
+        const finalProductSales = Object.keys(revenueByProduct).map(k => ({
+          name: k,
+          revenue: revenueByProduct[k]
+        })).sort((a, b) => b.revenue - a.revenue).slice(0, 5); // Top 5
+
+        setDailyRevenue(dailyRevenueArray);
+        setServiceDemographics(finalDemographics.length > 0 ? finalDemographics : [{name: 'Sin datos', value: 0}]);
+        setProductSalesData(finalProductSales);
         
         setReportSummary({
           totalRegistros: registrosMes,
@@ -353,6 +475,7 @@ const Reports = ({ initialFilters }) => {
               <option value="Corporales">Corporales / Reducción</option>
               <option value="Bronceado">Bronceado</option>
               <option value="Sesiones">Sesiones y Paquetes</option>
+              <option value="Academia">Academia</option>
               <option value="Otros">Otros</option>
             </select>
           </div>
@@ -444,16 +567,24 @@ const Reports = ({ initialFilters }) => {
         {/* Chart 1: Bar Chart */}
         <div className="col s12 l7">
           <div className="card-panel" style={{ padding: '1.5rem', height: '100%' }}>
-            <h6 style={{ fontWeight: 600, marginBottom: '1.5rem', color: '#334155' }}>Proyección Ingresos Diarios</h6>
+            <h6 style={{ fontWeight: 600, marginBottom: '1.5rem', color: '#334155', display: 'flex', justifyContent: 'space-between' }}>
+              Ingresos Reales por Día
+              <span style={{fontSize: '0.75rem', color: '#10b981'}}>● Servicios</span>
+              <span style={{fontSize: '0.75rem', color: '#0284c7'}}>● Productos</span>
+            </h6>
             <div style={{ width: '100%', height: 300 }}>
               {loading ? <div className="skeleton-box" style={{width:'100%', height:'100%'}}/> : (
               <ResponsiveContainer>
-                <BarChart data={mockDailyRevenue} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                <BarChart data={dailyRevenue} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10} />
-                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dx={-10} tickFormatter={(val) => `$${val}k`} />
-                  <RechartsTooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius:'12px', border:'none', boxShadow:'0 10px 15px -3px rgba(0,0,0,0.1)'}} />
-                  <Bar dataKey="servicios" stackId="a" fill="#10b981" radius={[0, 0, 4, 4]} name="Servicios" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10}} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10}} dx={-10} tickFormatter={(val) => `$${(val/1000).toFixed(0)}k`} />
+                  <RechartsTooltip 
+                    cursor={{fill: '#f8fafc'}} 
+                    contentStyle={{borderRadius:'12px', border:'none', boxShadow:'0 10px 15px -3px rgba(0,0,0,0.1)'}}
+                    formatter={(value) => formatCOP(value)}
+                  />
+                  <Bar dataKey="servicios" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} name="Servicios" />
                   <Bar dataKey="productos" stackId="a" fill="#0284c7" radius={[4, 4, 0, 0]} name="Productos" />
                 </BarChart>
               </ResponsiveContainer>
@@ -462,10 +593,10 @@ const Reports = ({ initialFilters }) => {
           </div>
         </div>
 
-        {/* Chart 2: Pie Chart */}
+        {/* Chart 2: Pie Chart - Revenue by Category */}
         <div className="col s12 l5">
           <div className="card-panel" style={{ padding: '1.5rem', height: '100%' }}>
-            <h6 style={{ fontWeight: 600, marginBottom: '1.5rem', color: '#334155' }}>Demanda por Categoría</h6>
+            <h6 style={{ fontWeight: 600, marginBottom: '1.5rem', color: '#334155' }}>Ventas por Categoría ($)</h6>
             {loading ? (
                <div style={{height: '300px', display: 'flex', alignItems:'center', justifyContent:'center'}}>
                  <div className="skeleton-circle" style={{width:'200px', height:'200px'}}/>
@@ -489,7 +620,10 @@ const Reports = ({ initialFilters }) => {
                           <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                         ))}
                       </Pie>
-                      <RechartsTooltip contentStyle={{borderRadius:'12px', border:'none', boxShadow:'0 10px 15px -3px rgba(0,0,0,0.1)'}} />
+                      <RechartsTooltip 
+                        contentStyle={{borderRadius:'12px', border:'none', boxShadow:'0 10px 15px -3px rgba(0,0,0,0.1)'}} 
+                        formatter={(value) => formatCOP(value)}
+                      />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -498,11 +632,85 @@ const Reports = ({ initialFilters }) => {
                   {serviceDemographics.map((entry, index) => (
                     <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: COLORS[index % COLORS.length] }}></div>
-                      <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500 }}>{entry.name} ({entry.value}%)</span>
+                      <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500 }}>{entry.name} ({formatCOP(entry.value)})</span>
                     </div>
                   ))}
                 </div>
                 </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* New Row: Top Products & Client Loyalty */}
+      <div className="row" style={{ display: 'flex', flexWrap: 'wrap' }}>
+        <div className="col s12 l7">
+          <div className="card-panel" style={{ padding: '1.5rem', height: '100%' }}>
+            <h6 style={{ fontWeight: 600, marginBottom: '1.5rem', color: '#334155' }}>Top 5 Productos por Recaudación</h6>
+            {loading ? (
+              <div className="skeleton-box" style={{width:'100%', height:'200px'}}/>
+            ) : (
+              <div style={{ width: '100%', height: 250 }}>
+                <ResponsiveContainer>
+                  <BarChart layout="vertical" data={productSalesData} margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                    <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10}} tickFormatter={(val) => `$${(val/1000).toFixed(0)}k`} />
+                    <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 11, fontWeight: 500}} width={120} />
+                    <RechartsTooltip 
+                      cursor={{fill: '#f1f5f9'}} 
+                      contentStyle={{borderRadius:'12px', border:'none', boxShadow:'0 10px 15px -3px rgba(0,0,0,0.1)'}}
+                      formatter={(value) => formatCOP(value)}
+                    />
+                    <Bar dataKey="revenue" fill="#0284c7" radius={[0, 4, 4, 0]} name="Recaudación" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="col s12 l5">
+          <div className="card-panel" style={{ padding: '1.5rem', height: '100%' }}>
+            <h6 style={{ fontWeight: 600, marginBottom: '1.5rem', color: '#334155' }}>Lealtad de Clientes</h6>
+            {loading ? (
+               <div style={{height: '250px', display: 'flex', alignItems:'center', justifyContent:'center'}}>
+                 <div className="skeleton-circle" style={{width:'150px', height:'150px'}}/>
+               </div>
+            ) : (
+              <>
+                <div style={{ width: '100%', height: 220 }}>
+                  <ResponsiveContainer>
+                    <PieChart>
+                      <Pie
+                        data={loyaltyData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                        stroke="none"
+                      >
+                        <Cell fill="#10b981" />
+                        <Cell fill="#0284c7" />
+                      </Pie>
+                      <RechartsTooltip 
+                        contentStyle={{borderRadius:'12px', border:'none', boxShadow:'0 10px 15px -3px rgba(0,0,0,0.1)'}} 
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', marginTop: '10px' }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Nuevos</div>
+                    <div style={{ fontWeight: 700, color: '#10b981', fontSize: '1.1rem' }}>{loyaltyData.find(d => d.name === 'Nuevos')?.value || 0}</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Recurrentes</div>
+                    <div style={{ fontWeight: 700, color: '#0284c7', fontSize: '1.1rem' }}>{loyaltyData.find(d => d.name === 'Recurrentes')?.value || 0}</div>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </div>

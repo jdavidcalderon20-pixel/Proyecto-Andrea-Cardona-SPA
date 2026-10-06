@@ -100,7 +100,10 @@ const ModalRecibo = ({ datos, onClose }) => {
         borderRadius: '20px',
         width: '100%',
         maxWidth: '480px',
+        maxHeight: 'calc(100vh - 40px)', // Evita que se salga de la pantalla
         boxShadow: '0 25px 60px rgba(0,0,0,0.25)',
+        display: 'flex',
+        flexDirection: 'column',
         overflow: 'hidden'
       }}>
         {/* Header */}
@@ -122,7 +125,7 @@ const ModalRecibo = ({ datos, onClose }) => {
         </div>
 
         {/* Resumen del recibo */}
-        <div style={{ padding: '1.5rem' }}>
+        <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
           <div style={{
             backgroundColor: '#f8fafc', border: '1px solid #e2e8f0',
             borderRadius: '12px', padding: '1rem', marginBottom: '1.25rem',

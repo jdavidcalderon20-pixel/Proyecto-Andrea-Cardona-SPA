@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Package, Plus, Search, AlertTriangle, Edit2, Trash2, Filter, Camera, Sparkles, Leaf, Droplet, ShoppingBag } from 'lucide-react';
+import { Package, Plus, Search, AlertTriangle, Edit2, Trash2, Filter, Camera, Sparkles, Leaf, Droplet, ShoppingBag, X } from 'lucide-react';
 import { getAllDocuments, createDocument, updateDocument, deleteDocument, uploadImage } from '../services/firebaseUtils';
 
 const getCategoryIcon = (category, size = 20) => {
@@ -25,12 +25,14 @@ const getCategoryBg = (category) => {
 const Products = () => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('Todas');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({ 
-    name: '', sku: '', category: 'Cosmética', price: '', stock: '', minStock: '', imageUrl: '', descripcion: '', consejos: '' 
+    name: '', sku: '', category: 'Cosmética', price: '', stock: '', minStock: '', imageUrl: '', descripcion: '', descripcionCorta: '', consejos: '' 
   });
   const [imageFile, setImageFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -52,14 +54,14 @@ const Products = () => {
   }, []);
 
   const openAddModal = () => {
-    setFormData({ name: '', sku: '', category: 'Cosmética', price: '', stock: '', minStock: '', imageUrl: '', descripcion: '', consejos: '' });
+    setFormData({ name: '', sku: '', category: 'Cosmética', price: '', stock: '', minStock: '', imageUrl: '', descripcion: '', descripcionCorta: '', consejos: '' });
     setImageFile(null);
     setEditingId(null);
     setIsModalOpen(true);
   };
 
   const openEditModal = (product) => {
-    setFormData({ ...product, imageUrl: product.imageUrl || '', descripcion: product.descripcion || '', consejos: product.consejos || '' });
+    setFormData({ ...product, imageUrl: product.imageUrl || '', descripcion: product.descripcion || '', descripcionCorta: product.descripcionCorta || '', consejos: product.consejos || '' });
     setImageFile(null);
     setEditingId(product.id);
     setIsModalOpen(true);
@@ -67,34 +69,49 @@ const Products = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    console.log("Submit triggered for product:", editingId ? "Edit" : "New");
+    console.log("Form data:", formData);
+    
     try {
       setIsUploading(true);
       let finalImageUrl = formData.imageUrl;
       
       if (imageFile) {
+        console.log("Uploading new image...");
         window.M?.toast({ html: 'Subiendo imagen...', classes: 'blue rounded' });
         finalImageUrl = await uploadImage(imageFile, 'productos');
+        console.log("Image uploaded:", finalImageUrl);
       }
 
       const dataToSave = {
-        ...formData,
-        price: Number(formData.price),
-        stock: Number(formData.stock),
-        minStock: Number(formData.minStock),
-        imageUrl: finalImageUrl
+        name: formData.name ? String(formData.name).trim() : '',
+        sku: formData.sku ? String(formData.sku).trim() : '',
+        category: formData.category ? String(formData.category).trim() : 'Cosmética',
+        price: Number(formData.price) || 0,
+        stock: Number(formData.stock) || 0,
+        minStock: Number(formData.minStock) || 0,
+        imageUrl: finalImageUrl || '',
+        descripcionCorta: formData.descripcionCorta ? String(formData.descripcionCorta).trim() : '',
+        descripcion: formData.descripcion ? String(formData.descripcion).trim() : '',
+        consejos: formData.consejos ? String(formData.consejos).trim() : ''
       };
+
+      console.log("Data to save in Firebase:", dataToSave);
 
       if (editingId) {
         await updateDocument('productos', editingId, dataToSave);
+        console.log("Product updated successfully");
         window.M?.toast({ html: 'Producto actualizado', classes: 'green rounded' });
       } else {
         await createDocument('productos', dataToSave);
+        console.log("Product created successfully");
         window.M?.toast({ html: 'Producto creado en inventario', classes: 'green rounded' });
       }
       setIsModalOpen(false);
       loadProducts();
     } catch (error) {
-      window.M?.toast({ html: 'Error al procesar la solicitud', classes: 'red rounded' });
+      console.error("Error in handleSubmit:", error);
+      window.M?.toast({ html: 'Error: ' + (error.message || 'Error al procesar'), classes: 'red rounded' });
     } finally {
       setIsUploading(false);
     }
@@ -159,10 +176,23 @@ const Products = () => {
             <input
               type="text"
               placeholder="Buscar por código (SKU) o nombre..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               style={{ width: '100%', height: '38px', margin: 0, paddingLeft: '38px', borderRadius: '8px', border: '1px solid #e2e8f0', boxSizing: 'border-box' }}
             />
           </div>
-          <button className="modern-btn-outline"><Filter size={18} style={{marginRight: '8px'}} /> Filtrar Categoría</button>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {['Todas', 'Cosmética', 'Suplementos', 'Aceites y Esencias', 'Accesorios'].map(cat => (
+              <button 
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={selectedCategory === cat ? 'modern-btn-small' : 'modern-btn-outline'}
+                style={{ padding: '4px 12px', height: 'auto', fontSize: '0.8rem' }}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
         </div>
 
         {loading ? (
@@ -177,7 +207,14 @@ const Products = () => {
              </div>
         ) : (
           <div className="row">
-            {products.map(item => (
+            {products
+              .filter(item => {
+                const matchesSearch = (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+                                     (item.sku || '').toLowerCase().includes(searchTerm.toLowerCase());
+                const matchesCategory = selectedCategory === 'Todas' || item.category === selectedCategory;
+                return matchesSearch && matchesCategory;
+              })
+              .map(item => (
               <div className="col s12 m6 l4" key={item.id}>
                 <div className="card-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', borderRadius: '16px' }}>
                   
@@ -243,74 +280,98 @@ const Products = () => {
         )}
       </div>
 
-      {/* Modal */}
+      {/* Luxury Modal for Products */}
       {isModalOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-          <div className="card-panel" style={{ width: '100%', maxWidth: '600px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h5 style={{ marginTop: 0, fontWeight: 600 }}>{editingId ? 'Editar Producto' : 'Crear Producto'}</h5>
-            <form onSubmit={handleSubmit} style={{ marginTop: '20px' }}>
-              <div className="row">
-                <div className="col s12 m8" style={{ marginBottom: '15px' }}>
-                  <label>Nombre del Producto</label>
-                  <input type="text" required className="browser-default" style={{ width: '100%', height: '40px', padding: '0 10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
-                    value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-                </div>
-                <div className="col s12 m4" style={{ marginBottom: '15px' }}>
-                   <label>Código SKU</label>
-                   <input type="text" required className="browser-default" style={{ width: '100%', height: '40px', padding: '0 10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
-                    value={formData.sku} onChange={e => setFormData({...formData, sku: e.target.value})} />
-                </div>
-                <div className="col s12 m6" style={{ marginBottom: '15px' }}>
-                  <label>Categoría</label>
-                  <select className="browser-default" style={{ border: '1px solid #e2e8f0', borderRadius: '8px', height: '40px' }}
-                    value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
-                    <option value="Cosmética">Cosmética</option>
-                    <option value="Suplementos">Suplementos</option>
-                    <option value="Aceites y Esencias">Aceites y Esencias</option>
-                    <option value="Accesorios">Accesorios</option>
-                  </select>
-                </div>
-                <div className="col s12 m6" style={{ marginBottom: '15px' }}>
-                   <label>Precio de Venta ($)</label>
-                   <input type="number" min="0" required className="browser-default" style={{ width: '100%', height: '40px', padding: '0 10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
-                    value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} />
-                </div>
-                <div className="col s6" style={{ marginBottom: '15px' }}>
-                   <label>Stock Actual (Unidades)</label>
-                   <input type="number" min="0" required className="browser-default" style={{ width: '100%', height: '40px', padding: '0 10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
-                    value={formData.stock} onChange={e => setFormData({...formData, stock: e.target.value})} />
-                </div>
-                <div className="col s6" style={{ marginBottom: '15px' }}>
-                   <label>Alerta Stock Mínimo</label>
-                   <input type="number" min="0" required className="browser-default" style={{ width: '100%', height: '40px', padding: '0 10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
-                    value={formData.minStock} onChange={e => setFormData({...formData, minStock: e.target.value})} />
-                </div>
-                <div className="col s12" style={{ marginBottom: '15px' }}>
-                   <label>Descripción del Producto</label>
-                   <textarea className="browser-default" style={{ width: '100%', height: '80px', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', resize: 'vertical', fontFamily: 'inherit' }}
-                    placeholder="Escribe para qué sirve, beneficios, componentes..."
-                    value={formData.descripcion} onChange={e => setFormData({...formData, descripcion: e.target.value})}></textarea>
-                </div>
-                <div className="col s12" style={{ marginBottom: '15px' }}>
-                   <label>Consejos de Aplicación (Se ve en la Web)</label>
-                   <textarea className="browser-default" style={{ width: '100%', height: '80px', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', resize: 'vertical', fontFamily: 'inherit' }}
-                    placeholder="Escribe consejos de cómo aplicarse, frecuencia, etc."
-                    value={formData.consejos} onChange={e => setFormData({...formData, consejos: e.target.value})}></textarea>
-                </div>
-                <div className="col s12" style={{ marginBottom: '20px' }}>
-                   <label>Imagen Representativa (Opcional)</label>
-                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
-                     <label className="modern-btn-outline" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: 'pointer', margin: 0 }}>
-                       <Camera size={18} /> Subir Foto
-                       <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => setImageFile(e.target.files[0])} />
-                     </label>
-                     <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                       {imageFile ? imageFile.name : formData.imageUrl ? 'Imagen anexada' : 'Ninguna imagen seleccionada'}
-                     </span>
-                   </div>
+        <div className="luxury-modal-overlay">
+          <div className="luxury-modal-container" style={{ maxWidth: '650px' }}>
+            <div className="luxury-modal-header">
+              <h5 style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>
+                {editingId ? 'Editar Producto' : 'Crear Producto'}
+              </h5>
+              <button onClick={() => setIsModalOpen(false)} className="btn-flat" style={{ padding: 0 }}>
+                <X size={24} color="#94a3b8" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit}>
+              <div className="luxury-modal-body">
+                <div className="row" style={{ margin: 0 }}>
+                  <div className="col s12 m8" style={{ marginBottom: '15px' }}>
+                    <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Nombre del Producto</label>
+                    <input type="text" required className="browser-default"
+                      value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+                  </div>
+                  <div className="col s12 m4" style={{ marginBottom: '15px' }}>
+                     <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Código SKU</label>
+                     <input type="text" required className="browser-default"
+                      value={formData.sku} onChange={e => setFormData({...formData, sku: e.target.value})} />
+                  </div>
+                  <div className="col s12 m6" style={{ marginBottom: '15px' }}>
+                    <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Categoría</label>
+                    <select className="browser-default"
+                      value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
+                      <option value="Cosmética">Cosmética</option>
+                      <option value="Suplementos">Suplementos</option>
+                      <option value="Aceites y Esencias">Aceites y Esencias</option>
+                      <option value="Accesorios">Accesorios</option>
+                    </select>
+                  </div>
+                  <div className="col s12 m6" style={{ marginBottom: '15px' }}>
+                     <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Precio de Venta ($)</label>
+                     <input type="number" min="0" required className="browser-default"
+                      value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} />
+                  </div>
+                  <div className="col s6" style={{ marginBottom: '15px' }}>
+                     <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Stock Actual</label>
+                     <input type="number" min="0" required className="browser-default"
+                      value={formData.stock} onChange={e => setFormData({...formData, stock: e.target.value})} />
+                  </div>
+                  <div className="col s6" style={{ marginBottom: '15px' }}>
+                     <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Alerta Stock Mínimo</label>
+                     <input type="number" min="0" required className="browser-default"
+                      value={formData.minStock} onChange={e => setFormData({...formData, minStock: e.target.value})} />
+                  </div>
+                  
+                  <div className="col s12" style={{ marginBottom: '15px' }}>
+                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                       <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Descripción Corta</label>
+                       <span style={{ fontSize: '0.75rem', color: (formData.descripcionCorta?.length || 0) >= 150 ? '#ef4444' : '#64748b' }}>
+                          {(formData.descripcionCorta?.length || 0)}/150
+                       </span>
+                     </div>
+                     <input type="text" maxLength={150} className="browser-default"
+                      placeholder="Resumen atractivo..."
+                      value={formData.descripcionCorta || ''} onChange={e => setFormData({...formData, descripcionCorta: e.target.value})} />
+                  </div>
+                  
+                  <div className="col s12" style={{ marginBottom: '15px' }}>
+                     <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Descripción Detallada</label>
+                     <textarea className="browser-default" style={{ height: '90px', resize: 'vertical' }}
+                      value={formData.descripcion} onChange={e => setFormData({...formData, descripcion: e.target.value})}></textarea>
+                  </div>
+                  
+                  <div className="col s12" style={{ marginBottom: '15px' }}>
+                     <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Consejos de Aplicación</label>
+                     <textarea className="browser-default" style={{ height: '90px', resize: 'vertical' }}
+                      value={formData.consejos} onChange={e => setFormData({...formData, consejos: e.target.value})}></textarea>
+                  </div>
+                  
+                  <div className="col s12" style={{ marginBottom: '10px' }}>
+                     <label style={{ color: '#1e293b', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Imagen del Producto</label>
+                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                       <label className="modern-btn-outline" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: 'pointer', margin: 0 }}>
+                         <Camera size={18} /> Subir Foto
+                         <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => setImageFile(e.target.files[0])} />
+                       </label>
+                       <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                         {imageFile ? imageFile.name : formData.imageUrl ? '✓ Cargada' : 'Sin imagen'}
+                       </span>
+                     </div>
+                  </div>
                 </div>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+
+              <div className="luxury-modal-footer">
                 <button type="button" className="modern-btn-outline" onClick={() => setIsModalOpen(false)}>Cancelar</button>
                 <button type="submit" className="modern-btn-small" disabled={isUploading}>
                   {isUploading ? 'Subiendo...' : 'Guardar Producto'}
@@ -320,6 +381,7 @@ const Products = () => {
           </div>
         </div>
       )}
+
 
     </div>
   );

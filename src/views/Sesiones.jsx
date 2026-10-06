@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Plus, ChevronLeft, ChevronDown, ChevronRight, Activity,
   CheckCircle2, Clock, AlertCircle, CreditCard, PenLine,
-  FileText, User, Edit2, Trash2
+  FileText, User, Edit2, Trash2, X
 } from 'lucide-react';
 import { getAllDocuments, createDocument, updateDocument, deleteDocument } from '../services/firebaseUtils';
 import FirmaDigital from '../components/FirmaDigital';
@@ -76,11 +76,22 @@ const Sesiones = () => {
   // ── Crear nuevo plan ─────────────────────────────────────────────────────
   const handleCrearPlan = async (e) => {
     e.preventDefault();
+    
+    // Validación manual extra
     if (!formPlan.clienteId) { alert('Selecciona un cliente'); return; }
+    if (!formPlan.tratamiento) { alert('Selecciona o escribe un tratamiento'); return; }
+    
     setSaving(true);
+    console.log('Iniciando creación de plan:', formPlan);
+
     try {
       const cliente = getCliente(formPlan.clienteId);
-      const sesionesArray = Array.from({ length: Number(formPlan.totalSesiones) }, (_, i) => ({
+      const totalS = Number(formPlan.totalSesiones) || 0;
+      const precioS = Number(formPlan.precioPorSesion) || 0;
+
+      if (totalS <= 0) { throw new Error('El número de sesiones debe ser mayor a 0'); }
+
+      const sesionesArray = Array.from({ length: totalS }, (_, i) => ({
         numero: i + 1,
         fecha: '',
         profesional: '',
@@ -89,21 +100,34 @@ const Sesiones = () => {
         metodoPago: 'efectivo',
         firma: '',
         reciboEnviado: false,
+        estado: 'pendiente'
       }));
-      await createDocument('sesiones', {
+
+      const planData = {
         ...formPlan,
-        clienteNombre: cliente?.name || '',
+        clienteNombre: cliente?.name || 'Cliente Desconocido',
         clienteEmail: cliente?.email || '',
         clientePhone: cliente?.phone || '',
-        totalSesiones: Number(formPlan.totalSesiones),
-        precioPorSesion: Number(formPlan.precioPorSesion),
+        totalSesiones: totalS,
+        precioPorSesion: precioS,
         estado: 'activo',
         sesiones: sesionesArray,
-      });
+        createdAt: new Date().toISOString()
+      };
+
+      console.log('Datos finales a enviar a Firebase:', planData);
+      
+      const docRef = await createDocument('sesiones', planData);
+      console.log('Documento creado con ID:', docRef.id);
+
       await loadData();
       setView('list');
       setFormPlan({ clienteId: '', tratamiento: '', descripcion: '', totalSesiones: 4, precioPorSesion: 0 });
-    } catch { alert('Error al crear el plan'); }
+      window.M?.toast({ html: '✓ Plan de sesiones creado con éxito', classes: 'green rounded' });
+    } catch (error) {
+      console.error('Error FATAL al crear plan de sesiones:', error);
+      alert(`No se pudo crear el plan: ${error.message || 'Error de conexión con la base de datos'}`);
+    }
     finally { setSaving(false); }
   };
 
@@ -195,9 +219,10 @@ const Sesiones = () => {
 
   // ── Helpers UI ────────────────────────────────────────────────────────────
   const inputStyle = {
-    width: '100%', height: '40px', padding: '0 12px', borderRadius: '8px',
-    border: '1px solid #e2e8f0', fontSize: '0.9rem', color: '#0f172a',
-    boxSizing: 'border-box', outline: 'none',
+    width: '100%', height: '42px', padding: '0 14px', borderRadius: '10px',
+    border: '1.5px solid #cbd5e1', fontSize: '0.92rem', color: '#0f172a',
+    boxSizing: 'border-box', outline: 'none', backgroundColor: '#ffffff',
+    transition: 'all 0.2s ease',
   };
 
   // ── Variables para modal de firma (computadas fuera del JSX) ─────────────
@@ -376,64 +401,81 @@ const Sesiones = () => {
           })
         )}
 
-        {/* Modal: Registrar sesión */}
+        {/* Luxury Modal: Registrar sesión */}
         {sesionModal && (
-          <div style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1100,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
-          }}>
-            <div className="card-panel" style={{ width: '100%', maxWidth: '520px', maxHeight: '90vh', overflowY: 'auto' }}>
-              <h5 style={{ margin: '0 0 1rem 0', fontWeight: 700, color: '#0f172a' }}>
-                Sesión #{sesionModal.sesion.numero} – {sesionModal.plan.clienteNombre}
-              </h5>
-              <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-                {sesionModal.plan.tratamiento} · {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(sesionModal.plan.precioPorSesion)}
-              </p>
+          <div className="luxury-modal-overlay">
+            <div className="luxury-modal-container" style={{ maxWidth: '520px' }}>
+              <div className="luxury-modal-header">
+                <h5 style={{ margin: 0, fontWeight: 700, color: '#1e293b' }}>
+                   Sesión #{sesionModal.sesion.numero}
+                </h5>
+                <button onClick={() => setSesionModal(null)} className="btn-flat" style={{ padding: 0 }}>
+                  <X size={24} color="#94a3b8" />
+                </button>
+              </div>
 
-              <Field label="Fecha de la sesión">
-                <input type="date" style={inputStyle} value={sesionForm.fecha || ''}
-                  onChange={e => setSesionForm(p => ({ ...p, fecha: e.target.value }))} />
-              </Field>
-              <Field label="Profesional">
-                <input type="text" style={inputStyle} placeholder="Nombre del profesional que realiza la sesión"
-                  value={sesionForm.profesional || ''}
-                  onChange={e => setSesionForm(p => ({ ...p, profesional: e.target.value }))} />
-              </Field>
-              <Field label="Observaciones">
-                <textarea style={{ ...inputStyle, height: '80px', padding: '10px 12px', resize: 'vertical' }}
-                  placeholder="Notas de la sesión, reacciones, resultados..."
-                  value={sesionForm.observaciones || ''}
-                  onChange={e => setSesionForm(p => ({ ...p, observaciones: e.target.value }))} />
-              </Field>
-              <Field label="Método de Pago">
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                  {METODOS_PAGO.map(m => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setSesionForm(p => ({ ...p, metodoPago: m }))}
-                      style={{
-                        padding: '8px 18px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600,
-                        fontSize: '0.85rem', border: '2px solid',
-                        borderColor: sesionForm.metodoPago === m ? '#059669' : '#e2e8f0',
-                        backgroundColor: sesionForm.metodoPago === m ? '#f0fdf4' : 'white',
-                        color: sesionForm.metodoPago === m ? '#059669' : '#64748b',
-                        transition: 'all 0.15s'
-                      }}>
-                      {m === 'efectivo' ? '💵' : m === 'transferencia' ? '🏦' : '💳'} {m.charAt(0).toUpperCase() + m.slice(1)}
-                    </button>
-                  ))}
+              <div className="luxury-modal-body">
+                <div style={{ marginBottom: '1.5rem', paddingBottom: '1rem', borderBottom: '1px solid #f1f5f9' }}>
+                   <p style={{ margin: 0, fontWeight: 600, color: '#0f172a' }}>{sesionModal.plan.clienteNombre}</p>
+                   <p style={{ margin: 0, color: '#64748b', fontSize: '0.85rem' }}>
+                    {sesionModal.plan.tratamiento} · {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(sesionModal.plan.precioPorSesion)}
+                   </p>
                 </div>
-              </Field>
 
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
+                <div className="row" style={{ margin: 0 }}>
+                  <div className="col s12" style={{ marginBottom: '15px' }}>
+                    <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Fecha de la sesión</label>
+                    <input type="date" className="browser-default" value={sesionForm.fecha || ''}
+                      onChange={e => setSesionForm(p => ({ ...p, fecha: e.target.value }))} />
+                  </div>
+                  
+                  <div className="col s12" style={{ marginBottom: '15px' }}>
+                    <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Profesional</label>
+                    <input type="text" className="browser-default" placeholder="Nombre del profesional"
+                      value={sesionForm.profesional || ''}
+                      onChange={e => setSesionForm(p => ({ ...p, profesional: e.target.value }))} />
+                  </div>
+                  
+                  <div className="col s12" style={{ marginBottom: '15px' }}>
+                    <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Observaciones</label>
+                    <textarea className="browser-default" style={{ height: '80px', resize: 'vertical' }}
+                      placeholder="Notas de la sesión..."
+                      value={sesionForm.observaciones || ''}
+                      onChange={e => setSesionForm(p => ({ ...p, observaciones: e.target.value }))} />
+                  </div>
+                  
+                  <div className="col s12">
+                    <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '10px' }}>Método de Pago</label>
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      {METODOS_PAGO.map(m => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setSesionForm(p => ({ ...p, metodoPago: m }))}
+                          style={{
+                            flex: 1, padding: '10px', borderRadius: '12px', cursor: 'pointer', fontWeight: 600,
+                            fontSize: '0.8rem', border: '2px solid',
+                            borderColor: sesionForm.metodoPago === m ? 'var(--spa-gold)' : '#e2e8f0',
+                            backgroundColor: sesionForm.metodoPago === m ? 'rgba(197, 160, 89, 0.05)' : 'white',
+                            color: sesionForm.metodoPago === m ? 'var(--spa-gold)' : '#64748b',
+                            transition: 'all 0.2s', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px'
+                          }}>
+                          <span style={{ fontSize: '1.2rem' }}>{m === 'efectivo' ? '💵' : m === 'transferencia' ? '🏦' : '💳'}</span>
+                          {m.charAt(0).toUpperCase() + m.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="luxury-modal-footer">
                 <button className="modern-btn-outline" onClick={() => setSesionModal(null)}>Cancelar</button>
-                <button className="modern-btn-outline" onClick={handleGuardarSesion}>
-                  <FileText size={16} /> Guardar sin pagar
+                <button className="modern-btn-outline" style={{ borderColor: '#94a3b8', color: '#475569' }} onClick={handleGuardarSesion}>
+                  Guardar Avance
                 </button>
                 <button className="modern-btn-small" onClick={handleConfirmarPago}>
-                  <PenLine size={16} /> Confirmar Pago y Firmar
+                   Cobrar y Firmar
                 </button>
               </div>
             </div>

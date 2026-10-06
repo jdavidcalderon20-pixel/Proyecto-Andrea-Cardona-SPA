@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
-import { LogOut, LayoutDashboard, Calendar, Users, Scissors, UserCircle, Menu, Settings, Megaphone, CreditCard, Package, BarChart2, ClipboardList, Activity, Wallet, Bell, Cake, CheckCircle, ShoppingCart } from 'lucide-react';
+import { LogOut, LayoutDashboard, Calendar, Users, Scissors, UserCircle, Menu, Settings, Megaphone, CreditCard, Package, BarChart2, ClipboardList, Activity, Wallet, Bell, Cake, CheckCircle, ShoppingCart, BookOpen } from 'lucide-react';
 import '../dashboard.css'; // Global dashboard overrides
 import spaLogo from '../assets/Logo.jpeg';
 
@@ -24,6 +24,9 @@ import PosSales from '../views/PosSales';
 import ErrorBoundary from '../components/ErrorBoundary';
 import SettingsView from '../views/Settings';
 import Sesiones from '../views/Sesiones';
+import Courses from '../views/Courses';
+import Leads from '../views/Leads';
+
 
 function Dashboard() {
   const [currentView, setCurrentView] = useState('overview');
@@ -305,7 +308,10 @@ function Dashboard() {
           </div>
         );
       case 'marketing': return <Marketing />;
+      case 'courses': return <Courses />;
+      case 'leads': return <Leads />;
       default: return <Overview />;
+
     }
   };
 
@@ -374,6 +380,12 @@ function Dashboard() {
               <ClipboardList size={20} /> Fichas Técnicas
             </div>
           )}
+          {hasAccess('leads') && (
+            <div className={`nav-item ${currentView === 'leads' ? 'active' : ''}`} onClick={() => changeView('leads')}>
+              <Users size={20} /> Interesados Academia
+            </div>
+          )}
+
 
           {(hasAccess('services') || hasAccess('products') || hasAccess('staff') || hasAccess('sesiones') || hasAccess('billing') || hasAccess('expenses')) && (
             <div className="nav-section">Operaciones</div>
@@ -393,6 +405,12 @@ function Dashboard() {
               <UserCircle size={20} /> Profesionales
             </div>
           )}
+          {hasAccess('courses') && (
+            <div className={`nav-item ${currentView === 'courses' ? 'active' : ''}`} onClick={() => changeView('courses')}>
+              <BookOpen size={20} /> Gestión Academia
+            </div>
+          )}
+
           {hasAccess('sesiones') && (
             <div className={`nav-item ${currentView === 'sesiones' ? 'active' : ''}`} onClick={() => changeView('sesiones')}>
               <Activity size={20} /> Sesiones y Pagos

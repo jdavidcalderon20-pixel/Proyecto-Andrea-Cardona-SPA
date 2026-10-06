@@ -18,26 +18,37 @@ export const CartProvider = ({ children }) => {
 
   const addToCart = (product) => {
     setCart(prev => {
-      const existing = prev.find(item => item.id === product.id);
+      const productId = String(product.id);
+      const existing = prev.find(item => String(item.id) === productId);
       if (existing) {
-        return prev.map(item => item.id === product.id ? { ...item, qty: item.qty + 1 } : item);
+        return prev.map(item => String(item.id) === productId ? { ...item, quantity: (Number(item.quantity) || 1) + 1 } : item);
       }
-      return [...prev, { ...product, qty: 1 }];
+      return [...prev, { ...product, id: productId, quantity: 1 }];
     });
     window.M?.toast({ html: '🛒 Producto agregado', classes: 'green rounded' });
   };
 
   const removeFromCart = (id) => {
-    setCart(prev => prev.filter(item => item.id !== id));
+    setCart(prev => prev.filter(item => String(item.id) !== String(id)));
+  };
+
+  const updateQuantity = (id, delta) => {
+    setCart(prev => prev.map(item => {
+      if (String(item.id) === String(id)) {
+        const newQty = (Number(item.quantity) || 1) + delta;
+        return { ...item, quantity: Math.max(1, newQty) };
+      }
+      return item;
+    }));
   };
 
   const clearCart = () => setCart([]);
 
-  const cartTotal = cart.reduce((acc, item) => acc + (item.price * item.qty), 0);
-  const cartCount = cart.reduce((acc, item) => acc + item.qty, 0);
+  const cartTotal = cart.reduce((acc, item) => acc + (Number(item.price || 0) * (Number(item.quantity) || 0)), 0);
+  const cartCount = cart.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
 
   return (
-    <CartContext.Provider value={{ cart, addToCart, removeFromCart, clearCart, cartTotal, cartCount, setCart }}>
+    <CartContext.Provider value={{ cart, addToCart, removeFromCart, updateQuantity, clearCart, cartTotal, cartCount, setCart }}>
       {children}
     </CartContext.Provider>
   );

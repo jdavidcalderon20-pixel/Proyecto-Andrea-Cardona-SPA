@@ -118,7 +118,8 @@ const PosSales = () => {
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 380px', gap: '24px', minHeight: 'calc(100vh - 120px)' }}>
+    <div className="pos-container">
+
       {/* Columna Izquierda: Catálogo de Productos */}
       <div className="card-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
@@ -146,7 +147,7 @@ const PosSales = () => {
           ) : filteredProducts.length === 0 ? (
              <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No se encontraron productos</div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
+            <div className="pos-product-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
               {filteredProducts.map(p => {
                  const stock = Number(p.stock) || 0;
                  return (
@@ -179,7 +180,7 @@ const PosSales = () => {
       </div>
 
       {/* Columna Derecha: Carrito */}
-      <div className="card-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: '#f8fafc', borderLeft: '1px solid #e2e8f0' }}>
+      <div className="card-panel pos-cart-column" style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: '#f8fafc' }}>
          <h5 style={{ margin: '0 0 20px 0', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <ShoppingCart size={22} color={darkOlive} /> Detalle de Venta
          </h5>
@@ -213,7 +214,7 @@ const PosSales = () => {
          </div>
 
          {/* Zona de Resumen */}
-         <div style={{ borderTop: '2px dashed #cbd5e1', paddingTop: '20px', marginTop: '20px' }}>
+         <div className="pos-summary-zone" style={{ borderTop: '2px dashed #cbd5e1', paddingTop: '20px', marginTop: '20px' }}>
             <div style={{ marginBottom: '15px' }}>
                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '5px' }}>Nombre del Cliente (Opcional)</label>
                <input type="text" className="browser-default" placeholder="Ej. Cliente Mostrador" value={clientName} onChange={e => setClientName(e.target.value)} style={{ width: '100%', height: '40px', padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem' }} />
@@ -221,10 +222,10 @@ const PosSales = () => {
 
             <div style={{ marginBottom: '20px' }}>
                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '8px' }}>Método de Pago</label>
-               <div style={{ display: 'flex', gap: '8px' }}>
+               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                  {['efectivo', 'nequi', 'tarjeta'].map(m => (
                     <button key={m} onClick={() => setPaymentMethod(m)} style={{ 
-                      flex: 1, padding: '8px 0', border: `1px solid ${paymentMethod === m ? darkOlive : '#cbd5e1'}`,
+                      flex: '1 1 80px', padding: '8px 0', border: `1px solid ${paymentMethod === m ? darkOlive : '#cbd5e1'}`,
                       borderRadius: '8px', backgroundColor: paymentMethod === m ? '#f0fdf4' : 'white',
                       color: paymentMethod === m ? darkOlive : '#64748b', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', textTransform: 'capitalize'
                     }}>

@@ -38,3 +38,9 @@ ui-debug.log
 *.njsproj
 *.sln
 *.sw?
+
+# SENA Deliverables & Temporary packages
+entregable_sena_frontend/
+bocetos/
+brain/
+*.zip

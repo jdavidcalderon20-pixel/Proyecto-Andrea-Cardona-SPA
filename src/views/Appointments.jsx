@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, User, Globe } from 'lucide-react';
+import { Plus, Search, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock, User, Globe, X } from 'lucide-react';
 import { format, parseISO, addDays, subDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { getAllDocuments, createDocument, updateDocument, deleteDocument } from '../services/firebaseUtils';
@@ -11,7 +11,8 @@ import FirmaDigital from '../components/FirmaDigital';
 import ModalRecibo from '../components/ModalRecibo';
 
 const METODOS_PAGO = ['efectivo', 'transferencia', 'tarjeta'];
-// Utility colors for appointment blocks
+const SPA_HOURS = ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00"];
+
 const APPT_COLORS = [
   { bg: '#d9f99d', border: '#84cc16' }, // Lime/Green
   { bg: '#7dd3fc', border: '#0284c7' }, // Light Blue
@@ -21,6 +22,7 @@ const APPT_COLORS = [
 ];
 
 const getColorPair = (idString) => {
+  if (idString === 'BLOQUEO') return { bg: '#334155', border: '#0f172a', text: '#ffffff' };
   if (!idString) return APPT_COLORS[0];
   let hash = 0;
   for (let i = 0; i < idString.length; i++) {
@@ -96,13 +98,43 @@ const Appointments = () => {
   }, []);
 
   const openAddModal = (clickedDate, clickedTime, clickedStaffId) => {
+    // Sugerir una hora válida (próxima hora en punto)
+    let suggestedTime = clickedTime || '10:00';
+    const dateToUse = clickedDate || selectedDate;
+    
+    if (!clickedTime && dateToUse === new Date().toISOString().split('T')[0]) {
+      const now = new Date();
+      const currentH = now.getHours();
+      // Solo sugerir horas futuras si es hoy
+      const futureHours = SPA_HOURS.filter(h => {
+        const [hLimit] = h.split(':').map(Number);
+        return hLimit > currentH;
+      });
+      suggestedTime = futureHours.length > 0 ? futureHours[0] : '08:00';
+    }
+
     setFormData({ 
       clientId: '', clientName: '', 
       serviceId: '', serviceName: '', 
       staffId: clickedStaffId || '', staffName: '', 
-      date: clickedDate || selectedDate, 
-      time: clickedTime || '10:00', 
+      date: dateToUse, 
+      time: suggestedTime, 
       status: 'Pendiente',
+      notifyEmail: false,
+      notifyWhatsApp: false
+    });
+    setEditingId(null);
+    setIsModalOpen(true);
+  };
+
+  const openBlockModal = (clickedDate, clickedTime, clickedStaffId) => {
+    setFormData({ 
+      clientId: 'BLOQUEO', clientName: 'BLOQUEO ADMINISTRATIVO', 
+      serviceId: 'BLOQUEO', serviceName: 'Indisponible (Diligencia)', 
+      staffId: clickedStaffId || '', staffName: '', 
+      date: clickedDate || selectedDate, 
+      time: clickedTime || '08:00', 
+      status: 'Bloqueado',
       notifyEmail: false,
       notifyWhatsApp: false
     });
@@ -174,6 +206,43 @@ const Appointments = () => {
       delete dataToSave.notifyEmail;
       delete dataToSave.notifyWhatsApp;
 
+      // 1. Validar que no sea en el pasado (solo para citas nuevas o si cambió la hora)
+      const now = new Date();
+      // Creamos la fecha local para comparar correctamente
+      const [year, month, day] = dataToSave.date.split('-').map(Number);
+      const [hour, min] = dataToSave.time.split(':').map(Number);
+      const apptDateTime = new Date(year, month - 1, day, hour, min);
+
+      if (apptDateTime < now && !editingId) {
+        window.M?.toast({ html: '🚫 No puedes agendar citas en el pasado.', classes: 'red rounded' });
+        return;
+      }
+
+      // 2. Validar conflictos de horario (considerando duración y profesional)
+      const durationMins = getServiceDuration(dataToSave.serviceId);
+      const startTotalMins = hour * 60 + min;
+      const endTotalMins = startTotalMins + durationMins;
+
+      const hasConflict = appointments.some(a => {
+        if (a.id === editingId) return false;
+        if (a.date !== dataToSave.date) return false;
+        if (a.staffId !== dataToSave.staffId) return false;
+        if (a.status === 'Cancelada') return false;
+
+        const [ah, am] = a.time.split(':').map(Number);
+        const aStart = ah * 60 + am;
+        const aDuration = getServiceDuration(a.serviceId);
+        const aEnd = aStart + aDuration;
+
+        // Lógica de solapamiento: (InicioA < FinB) && (FinA > InicioB)
+        return startTotalMins < aEnd && endTotalMins > aStart;
+      });
+
+      if (hasConflict) {
+        window.M?.toast({ html: '🚫 El profesional ya tiene una cita o el horario se cruza con otra atención.', classes: 'red rounded' });
+        return;
+      }
+
       if (editingId) {
         // If status changed to Cancelada, delete the appointment to free the slot
         if (dataToSave.status === 'Cancelada') {
@@ -181,26 +250,11 @@ const Appointments = () => {
           window.M?.toast({ html: 'Cita cancelada. Horario liberado.', classes: 'orange rounded' });
         } else {
           await updateDocument('citas', editingId, dataToSave);
-          window.M?.toast({ html: 'Cita actualizada', classes: 'green rounded' });
+          window.M?.toast({ html: 'Cita/Bloqueo actualizado', classes: 'green rounded' });
         }
       } else {
-        // Check for duplicate time slot before creating
-        const dupeQ = query(
-          collection(db, 'citas'),
-          where('date', '==', dataToSave.date),
-          where('time', '==', dataToSave.time)
-        );
-        const dupeSnap = await getDocs(dupeQ);
-        const activeConflict = dupeSnap.docs.some(d => {
-          const s = d.data().status;
-          return s !== 'Cancelada';
-        });
-        if (activeConflict) {
-          window.M?.toast({ html: '🚫 Horario no disponible. Andrea, ya tienes una cita programada a esta hora.', classes: 'red rounded' });
-          return;
-        }
         await createDocument('citas', dataToSave);
-        window.M?.toast({ html: 'Cita agendada', classes: 'green rounded' });
+        window.M?.toast({ html: dataToSave.clientId === 'BLOQUEO' ? 'Horario bloqueado' : 'Cita agendada', classes: 'green rounded' });
       }
       
       setIsModalOpen(false);
@@ -245,11 +299,11 @@ const Appointments = () => {
         }
       }
 
-      if (formData.notifyWhatsApp) {
-        // Try to resolve phone from enriched appt, client list, or stored field
+      if (formData.notifyWhatsApp && formData.clientId !== 'BLOQUEO') {
         const resolvedPhone = formData.resolvedPhone
           || selectedClient?.phone || selectedClient?.telefono || selectedClient?.celular
           || formData.clientPhone || '';
+        
         if (resolvedPhone) {
           const num = resolvedPhone.replace(/\D/g, '');
           const cleanNum = num.startsWith('57') ? num : `57${num}`;
@@ -263,13 +317,62 @@ const Appointments = () => {
             `👩‍⚕️ *Profesional:* ${finalData.staffName}\n\n` +
             `¡Te esperamos! 🌷`
           );
-          window.open(`https://wa.me/${cleanNum}?text=${mensaje}`, '_blank');
-        } else {
-          window.M?.toast({ html: 'El cliente no tiene teléfono registrado', classes: 'orange rounded' });
+          
+          const waUrl = `https://wa.me/${cleanNum}?text=${mensaje}`;
+          
+          // CRITICAL: On mobile, async waits break window.open.
+          // We use window.location.assign for mobile as it's more reliable.
+          setTimeout(() => {
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            if (isMobile) {
+              window.location.assign(waUrl);
+            } else {
+              window.open(waUrl, '_blank');
+            }
+          }, 100);
         }
       }
     } catch (error) {
+      console.error('Error in handleSubmit:', error);
       window.M?.toast({ html: 'Error al procesar la cita', classes: 'red rounded' });
+    }
+  };
+
+  const handleManualEmail = async (appt) => {
+    const clientDoc = clients.find(c => c.id === appt.clientId);
+    const resolvedEmail = appt.resolvedEmail || appt.clientEmail || clientDoc?.email || clientDoc?.correo || '';
+    
+    if (!resolvedEmail) {
+      window.M?.toast({ html: 'El cliente no tiene correo registrado', classes: 'orange rounded' });
+      return;
+    }
+
+    try {
+      const emailjsServiceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+      const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_APPT;
+      const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+
+      await emailjs.send(emailjsServiceId, templateId, {
+        titulo_cabecera:    'Confirmación de Cita 🌿',
+        to_name:            appt.clientName,
+        to_email:           resolvedEmail,
+        mensaje_bienvenida: 'Recordatorio de tu espacio reservado.',
+        label_1:            'Servicio',
+        valor_1:            appt.serviceName,
+        label_2:            'Fecha y Hora',
+        valor_2:            `${appt.date} · ${appt.time}`,
+        label_3:            'Sede',
+        valor_3:            'Chinchiná',
+        mensaje_pie_pagina: 'Por favor, llega 5 minutos antes de tu cita.',
+        logo_url:           import.meta.env.VITE_LOGO_URL || logoBase64,
+        operacion_id:       appt.id,
+        subject:            'Recordatorio de Cita - Andrea Cardona SPA',
+      }, publicKey);
+      
+      window.M?.toast({ html: 'Correo enviado con éxito', classes: 'green rounded' });
+    } catch (err) {
+      console.error('Error manual email:', err);
+      window.M?.toast({ html: 'Error al enviar correo', classes: 'red rounded' });
     }
   };
 
@@ -347,6 +450,7 @@ const Appointments = () => {
   const hours = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => i + START_HOUR);
 
   const getServiceDuration = (serviceId) => {
+    if (serviceId === 'BLOQUEO') return 60; // blocks are 1 hour by default
     const service = services.find(s => s.id === serviceId);
     if (service && service.duration) {
        const match = service.duration.match(/\d+/);
@@ -370,6 +474,7 @@ const Appointments = () => {
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
           <button className="modern-btn-small" onClick={() => openAddModal()}><Plus size={18} /> Agendar Cita</button>
+          <button className="modern-btn-small" style={{ backgroundColor: '#475569' }} onClick={() => openBlockModal()}><Clock size={18} /> Bloquear Horario</button>
         </div>
       </div>
 
@@ -474,6 +579,7 @@ const Appointments = () => {
                        const blockHeight = (durationMins / 60) * HOUR_HEIGHT;
                        
                        const colors = getColorPair(appt.clientId);
+                       const isBlock = appt.clientId === 'BLOQUEO';
 
                        return (
                          <div key={appt.id} 
@@ -489,13 +595,32 @@ const Appointments = () => {
                               onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
                           >
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                               <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', lineHeight: 1.1 }}>{appt.clientName} {appt.pagado && <span style={{color: '#059669', fontSize: '0.8rem'}}>✓</span>}</span>
-                               <Globe size={12} color={colors.border} style={{ opacity: 0.8 }} />
+                               <span style={{ fontSize: '0.85rem', fontWeight: 700, color: isBlock ? '#ffffff' : '#0f172a', lineHeight: 1.1 }}>
+                                 {appt.clientName} {appt.pagado && <span style={{color: '#059669', fontSize: '0.8rem'}}>✓</span>}
+                               </span>
+                               <Globe size={12} color={isBlock ? '#ffffff' : colors.border} style={{ opacity: 0.8 }} />
                             </div>
-                            <span style={{ fontSize: '0.75rem', color: '#334155', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            
+                            {!isBlock && (
+                              <div style={{ 
+                                display: 'inline-flex', alignItems: 'center', gap: '4px', 
+                                fontSize: '0.65rem', fontWeight: 700, padding: '2px 6px', 
+                                borderRadius: '4px', marginTop: '4px', width: 'fit-content',
+                                backgroundColor: 'rgba(255,255,255,0.5)', color: '#1e293b'
+                              }}>
+                                {appt.status === 'Pendiente' && '⏳'}
+                                {appt.status === 'Confirmada' && '✅'}
+                                {appt.status === 'Completada' && '⭐'}
+                                {appt.status === 'Cancelada' && '❌'}
+                                {appt.status === 'Pendiente de Verificación' && '💳'}
+                                {appt.status}
+                              </div>
+                            )}
+
+                            <span style={{ fontSize: '0.75rem', color: isBlock ? '#cbd5e1' : '#334155', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                {appt.serviceName}
                             </span>
-                            <span style={{ fontSize: '0.7rem', color: '#475569', marginTop: 'auto', fontWeight: 500 }}>
+                            <span style={{ fontSize: '0.7rem', color: isBlock ? '#94a3b8' : '#475569', marginTop: 'auto', fontWeight: 500 }}>
                                {appt.time} - {addMins(appt.time, durationMins)}
                             </span>
                          </div>
@@ -509,158 +634,300 @@ const Appointments = () => {
         </div>
       )}
 
-      {/* Booking Modal */}
+      {/* Luxury Booking Modal */}
       {isModalOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', backdropFilter: 'blur(2px)' }}>
-          <div style={{ backgroundColor: '#ffffff', width: '100%', maxWidth: '650px', maxHeight: '90vh', overflowY: 'auto', borderRadius: '16px', padding: '32px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)' }}>
-            <h4 style={{ marginTop: 0, marginBottom: '24px', fontWeight: 700, color: '#1e293b', fontSize: '1.75rem' }}>
-              {editingId ? '📋 Gestión de Cita' : 'Agendar Nueva Cita'}
-            </h4>
+        <div className="luxury-modal-overlay">
+          <div className="luxury-modal-container" style={{ maxWidth: '650px' }}>
+            <div className="luxury-modal-header">
+              <h5 style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>
+                {formData.clientId === 'BLOQUEO' 
+                  ? (editingId ? 'Editar Bloqueo' : 'Nuevo Bloqueo Administrativo')
+                  : (editingId ? 'Gestión de Cita' : 'Agendar Nueva Cita')}
+              </h5>
+              <button onClick={() => setIsModalOpen(false)} className="btn-flat" style={{ padding: 0 }}>
+                <X size={24} color="#94a3b8" />
+              </button>
+            </div>
+
             <form onSubmit={handleSubmit}>
-              <div className="row" style={{ margin: 0 }}>
-                {/* Primera Fila */}
-                <div className="col s12 m6" style={{ padding: '0 10px 20px 0' }}>
-                  <label style={{ display: 'block', marginBottom: '8px', color: '#94a3b8', fontSize: '0.85rem', fontWeight: 500 }}>Cliente</label>
-                  <select required className="browser-default" style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: '8px', height: '44px', padding: '0 12px', color: '#0f172a', fontSize: '0.95rem', backgroundColor: '#ffffff', outline: 'none' }}
-                    value={formData.clientId} onChange={e => setFormData({...formData, clientId: e.target.value})}>
-                    <option value="" disabled>Seleccionar Cliente...</option>
-                    {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
-                <div className="col s12 m6" style={{ padding: '0 0 20px 10px' }}>
-                  <label style={{ display: 'block', marginBottom: '8px', color: '#94a3b8', fontSize: '0.85rem', fontWeight: 500 }}>Servicio</label>
-                  <select required className="browser-default" style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: '8px', height: '44px', padding: '0 12px', color: '#0f172a', fontSize: '0.95rem', backgroundColor: '#ffffff', outline: 'none' }}
-                    value={formData.serviceId} onChange={e => setFormData({...formData, serviceId: e.target.value})}>
-                    <option value="" disabled>Seleccionar Servicio...</option>
-                    {services.map(s => <option key={s.id} value={s.id}>{s.name} (${Number(s.price).toLocaleString()})</option>)}
-                  </select>
-                </div>
+              <div className="luxury-modal-body">
+                <div className="row" style={{ margin: 0 }}>
+                  {/* Primera Fila */}
+                  {formData.clientId !== 'BLOQUEO' ? (
+                    <>
+                      <div className="col s12 m6" style={{ marginBottom: '15px' }}>
+                        <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Cliente</label>
+                        <select required className="browser-default"
+                          value={formData.clientId} onChange={e => setFormData({...formData, clientId: e.target.value})}>
+                          <option value="" disabled>Seleccionar Cliente...</option>
+                          {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="col s12 m6" style={{ marginBottom: '15px' }}>
+                        <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Servicio</label>
+                        <select required className="browser-default"
+                          value={formData.serviceId} onChange={e => setFormData({...formData, serviceId: e.target.value})}>
+                          <option value="" disabled>Seleccionar Servicio...</option>
+                          {services.map(s => <option key={s.id} value={s.id}>{s.name} (${Number(s.price).toLocaleString()})</option>)}
+                        </select>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="col s12" style={{ marginBottom: '20px' }}>
+                      <div style={{ backgroundColor: '#f8fafc', padding: '15px', borderRadius: '16px', border: '1px solid #e2e8f0', color: '#475569', textAlign: 'center' }}>
+                        <Clock size={24} style={{ marginBottom: '8px', color: 'var(--spa-gold)' }} />
+                        <p style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>Bloqueo Administrativo</p>
+                        <p style={{ margin: 0, fontSize: '0.85rem' }}>Este horario no estará disponible en la página web.</p>
+                      </div>
+                    </div>
+                  )}
 
-                {/* Segunda Fila */}
-                <div className="col s12 m4" style={{ padding: '0 10px 20px 0' }}>
-                  <label style={{ display: 'block', marginBottom: '8px', color: '#94a3b8', fontSize: '0.85rem', fontWeight: 500 }}>Profesional</label>
-                  <select required className="browser-default" style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: '8px', height: '44px', padding: '0 12px', color: '#0f172a', fontSize: '0.95rem', backgroundColor: '#ffffff', outline: 'none' }}
-                    value={formData.staffId} onChange={e => setFormData({...formData, staffId: e.target.value})}>
-                    <option value="" disabled>Seleccionar Profesional...</option>
-                    {staff.map(st => <option key={st.id} value={st.id}>{st.name}</option>)}
-                  </select>
-                </div>
-                <div className="col s6 m4" style={{ padding: '0 10px 20px 10px' }}>
-                   <label style={{ display: 'block', marginBottom: '8px', color: '#94a3b8', fontSize: '0.85rem', fontWeight: 500 }}>Fecha</label>
-                   <input type="date" required className="browser-default" style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: '8px', height: '44px', padding: '0 12px', color: '#0f172a', fontSize: '0.95rem', boxSizing: 'border-box', outline: 'none' }} 
-                    value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
-                </div>
-                <div className="col s6 m4" style={{ padding: '0 0 20px 10px' }}>
-                   <label style={{ display: 'block', marginBottom: '8px', color: '#94a3b8', fontSize: '0.85rem', fontWeight: 500 }}>Hora</label>
-                   <input type="time" required className="browser-default" style={{ width: '100%', border: '1px solid #e2e8f0', borderRadius: '8px', height: '44px', padding: '0 12px', color: '#0f172a', fontSize: '0.95rem', boxSizing: 'border-box', outline: 'none' }} 
-                    value={formData.time} onChange={e => setFormData({...formData, time: e.target.value})} />
-                </div>
+                  {/* Segunda Fila */}
+                  {/* Segunda Fila - Agrupada para Responsividad */}
+                  <div className="col s12" style={{ padding: 0 }}>
+                    <div className="input-group-responsive">
+                      <div style={{ marginBottom: '15px' }}>
+                        <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Profesional</label>
+                        <select required className="browser-default"
+                          value={formData.staffId} onChange={e => setFormData({...formData, staffId: e.target.value})}>
+                          <option value="" disabled>Seleccionar...</option>
+                          {staff.map(st => <option key={st.id} value={st.id}>{st.name}</option>)}
+                        </select>
+                      </div>
+                      <div style={{ marginBottom: '15px' }}>
+                        <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Fecha</label>
+                        <input type="date" required className="browser-default luxury-input"
+                          style={{ width: '100%', boxSizing: 'border-box' }}
+                          value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
+                      </div>
+                      <div style={{ marginBottom: '15px' }}>
+                        <label style={{ color: '#475569', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Hora</label>
+                        <select required className="browser-default luxury-input"
+                          style={{ width: '100%', boxSizing: 'border-box' }}
+                          value={formData.time} onChange={e => setFormData({...formData, time: e.target.value})}>
+                            <option value="" disabled>Seleccionar...</option>
+                            {SPA_HOURS.filter(h => {
+                              const todayStr = new Date().toLocaleDateString('en-CA');
+                              
+                              // 1. Ocultar si ya está ocupado por este profesional (Cita o Bloqueo)
+                              const isBusy = appointments.some(a => 
+                                a.date === formData.date && 
+                                a.staffId === formData.staffId && 
+                                a.time === h && 
+                                a.status !== 'Cancelada' &&
+                                a.id !== editingId
+                              );
+                              if (isBusy) return false;
 
-                {editingId && (
-                  <div className="col s12" style={{ padding: '0 0 20px 0' }}>
-                    <label style={{ display: 'block', marginBottom: '8px', color: '#94a3b8', fontSize: '0.85rem', fontWeight: 500 }}>Estado de la Cita</label>
-                    <select className="browser-default" style={{
-                      width: '100%', border: '2px solid',
-                      borderColor: formData.status === 'Pendiente' ? '#eab308' : formData.status === 'Confirmada' ? '#3b82f6' : formData.status === 'Completada' ? '#10b981' : formData.status === 'Cancelada' ? '#ef4444' : '#e2e8f0',
-                      borderRadius: '8px', height: '44px', padding: '0 12px',
-                      color: formData.status === 'Pendiente' ? '#854d0e' : formData.status === 'Confirmada' ? '#1e40af' : formData.status === 'Completada' ? '#065f46' : formData.status === 'Cancelada' ? '#991b1b' : '#0f172a',
-                      fontSize: '0.95rem', fontWeight: 700,
-                      backgroundColor: formData.status === 'Pendiente' ? '#fefce8' : formData.status === 'Confirmada' ? '#eff6ff' : formData.status === 'Completada' ? '#f0fdf4' : formData.status === 'Cancelada' ? '#fef2f2' : '#ffffff',
-                      outline: 'none'
-                    }}
-                      value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
-                      <option value="Pendiente">⏳ Pendiente</option>
-                      <option value="Confirmada">✅ Confirmada</option>
-                      <option value="Completada">⭐ Completada</option>
-                      <option value="Cancelada">❌ Cancelada</option>
-                      <option value="Pendiente de Verificación">💳 Pendiente de Verificación</option>
-                      <option value="Confirmada - Pago Presencial">💵 Confirmada - Pago Presencial</option>
-                    </select>
-                    {formData.status === 'Cancelada' && (
-                      <p style={{ margin: '8px 0 0 0', color: '#ef4444', fontSize: '0.8rem', fontWeight: 500 }}>
-                        ⚠️ Al guardar con estado "Cancelada", el horario quedará libre automáticamente.
-                      </p>
-                    )}
+                              // 2. Ocultar si es hoy y la hora ya pasó
+                              if (formData.date === todayStr) {
+                                  const now = new Date();
+                                  const currentMins = now.getHours() * 60 + now.getMinutes();
+                                  const [hLimit, mLimit] = h.split(':').map(Number);
+                                  const slotMins = hLimit * 60 + (mLimit || 0);
+                                  return slotMins > currentMins;
+                              }
+                              // Evitar fechas pasadas completamente
+                              if (formData.date < todayStr) return false;
+                              return true;
+                            }).map(h => <option key={h} value={h}>{h}</option>)}
+                        </select>
+                        {formData.staffId && formData.date && (
+                          <span style={{ fontSize: '0.7rem', color: 'var(--spa-primary-dark)', display: 'block', marginTop: '4px' }}>
+                            Solo horarios disponibles
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
+
+                  {editingId && (
+                    <div className="col s12" style={{ marginBottom: '20px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <label style={{ color: '#475569', fontWeight: 600 }}>Estado de la Cita</label>
+                        {formData.status === 'Pendiente' && (
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              const resolvedPhone = formData.resolvedPhone || formData.clientPhone || '';
+                              if (!resolvedPhone) {
+                                window.M?.toast({ html: 'Sin teléfono registrado', classes: 'orange rounded' });
+                                return;
+                              }
+                              const num = resolvedPhone.replace(/\D/g, '');
+                              const cleanNum = num.startsWith('57') ? num : `57${num}`;
+                              const mensaje = encodeURIComponent(
+                                `🌿 *Confirmación de Cita – Andrea Cardona SPA*\n\n` +
+                                `Hola *${formData.clientName}*,\n\n` +
+                                `Te escribimos para confirmar tu cita programada:\n\n` +
+                                `📋 *Tratamiento:* ${formData.serviceName}\n` +
+                                `📅 *Fecha:* ${formData.date}\n` +
+                                `⏰ *Hora:* ${formData.time}\n\n` +
+                                `¿Podrías confirmarnos si asistirás? ¡Muchas gracias! 🌷`
+                              );
+                              
+                              const waUrl = `https://wa.me/${cleanNum}?text=${mensaje}`;
+                              const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                              if (isMobile) {
+                                window.location.assign(waUrl);
+                              } else {
+                                window.open(waUrl, '_blank');
+                              }
+                            }}
+                            style={{ 
+                              fontSize: '0.75rem', backgroundColor: '#25d366', color: 'white', 
+                              border: 'none', padding: '4px 10px', borderRadius: '20px', 
+                              cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px' 
+                            }}
+                          >
+                            📲 Pedir Confirmación WA
+                          </button>
+                        )}
+                      </div>
+                      <select className="browser-default" style={{
+                        fontWeight: 700,
+                        borderColor: formData.status === 'Cancelada' ? '#ef4444' : 'var(--spa-gold)',
+                        color: formData.status === 'Cancelada' ? '#991b1b' : '#0f172a'
+                      }}
+                        value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
+                        <option value="Pendiente">⏳ Pendiente</option>
+                        <option value="Confirmada">✅ Confirmada</option>
+                        <option value="Completada">⭐ Completada</option>
+                        <option value="Cancelada">❌ Cancelada</option>
+                        <option value="Pendiente de Verificación">💳 Verificación Pago</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {editingId && !formData.pagado && formData.status !== 'Cancelada' && (
+                    <div className="col s12" style={{ marginBottom: '20px' }}>
+                      <div style={{ padding: '15px', backgroundColor: '#f8fafc', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <p style={{ margin: 0, fontWeight: 700, color: '#0f172a', fontSize: '0.9rem' }}>Pendiente de Pago</p>
+                          <p style={{ margin: 0, color: '#64748b', fontSize: '0.8rem' }}>{formData.resolvedEmail || 'Sin correo'}</p>
+                        </div>
+                        <button type="button" onClick={() => { setIsModalOpen(false); abrirPagoModal({...formData, clientEmail: formData.resolvedEmail, clientPhone: formData.resolvedPhone}); }} className="modern-button-small" style={{ fontSize: '0.8rem', padding: '8px 16px' }}>
+                          Ir a Pagar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {formData.clientId !== 'BLOQUEO' && (
+                    <div className="col s12" style={{ borderTop: '1px solid #f1f5f9', paddingTop: '15px', marginTop: '10px' }}>
+                      <div style={{ display: 'flex', gap: '20px', marginBottom: '15px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                          <input type="checkbox" className="filled-in" checked={formData.notifyEmail} onChange={e => setFormData({...formData, notifyEmail: e.target.checked})} />
+                          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>Notificar Email</span>
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                          <input type="checkbox" className="filled-in" checked={formData.notifyWhatsApp} onChange={e => setFormData({...formData, notifyWhatsApp: e.target.checked})} />
+                          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>Notificar WhatsApp</span>
+                        </label>
+                      </div>
+
+                      {editingId && (
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          <button 
+                            type="button" 
+                            onClick={() => handleManualEmail(formData)}
+                            style={{ 
+                              fontSize: '0.75rem', backgroundColor: '#f1f5f9', color: '#475569', 
+                              border: '1px solid #e2e8f0', padding: '6px 12px', borderRadius: '8px', 
+                              cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px' 
+                            }}
+                          >
+                            📧 Reenviar Email
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              const resolvedPhone = formData.resolvedPhone || formData.clientPhone || '';
+                              if (!resolvedPhone) return;
+                              const num = resolvedPhone.replace(/\D/g, '');
+                              const cleanNum = num.startsWith('57') ? num : `57${num}`;
+                              const mensaje = encodeURIComponent(
+                                `🌿 *Recordatorio de Cita – Andrea Cardona SPA*\n\n` +
+                                `Hola *${formData.clientName}*,\n\n` +
+                                `Te recordamos tu cita:\n\n` +
+                                `📋 *Tratamiento:* ${formData.serviceName}\n` +
+                                `📅 *Fecha:* ${formData.date}\n` +
+                                `⏰ *Hora:* ${formData.time}\n\n` +
+                                `¡Te esperamos! 🌷`
+                              );
+                              const waUrl = `https://wa.me/${cleanNum}?text=${mensaje}`;
+                              const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                              if (isMobile) {
+                                window.location.assign(waUrl);
+                              } else {
+                                window.open(waUrl, '_blank');
+                              }
+                            }}
+                            style={{ 
+                              fontSize: '0.75rem', backgroundColor: '#e8f5e9', color: '#2e7d32', 
+                              border: '1px solid #c8e6c9', padding: '6px 12px', borderRadius: '8px', 
+                              cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px' 
+                            }}
+                          >
+                            📲 Reenviar WhatsApp
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="luxury-modal-footer">
+                {editingId && (
+                   <button type="button" onClick={() => handleDelete(editingId)} style={{ color: '#ef4444', background: 'none', border: 'none', fontWeight: 600, cursor: 'pointer', marginRight: 'auto' }}>Eliminar</button>
                 )}
-              </div>
-
-              {editingId && formData.pagado && (
-                <div style={{ padding: '12px 16px', backgroundColor: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                   <span style={{ color: '#065f46', fontWeight: 600, fontSize: '0.9rem' }}>✅ Cita Pagada ({formData.metodoPago || 'efectivo'})</span>
-                </div>
-              )}
-              {editingId && !formData.pagado && formData.status !== 'Cancelada' && (
-                <div style={{ padding: '12px 16px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                   <div>
-                     <span style={{ color: '#64748b', fontWeight: 500, fontSize: '0.9rem' }}>Pendiente de Pago</span>
-                     {formData.resolvedEmail && (
-                       <span style={{ display: 'block', color: '#94a3b8', fontSize: '0.78rem', marginTop: '2px' }}>📧 {formData.resolvedEmail}</span>
-                     )}
-                     {formData.resolvedPhone && (
-                       <span style={{ display: 'block', color: '#94a3b8', fontSize: '0.78rem' }}>📱 {formData.resolvedPhone}</span>
-                     )}
-                   </div>
-                   <button type="button" onClick={() => { setIsModalOpen(false); abrirPagoModal({...formData, clientEmail: formData.resolvedEmail, clientPhone: formData.resolvedPhone}); }} className="modern-btn-small" style={{ margin: 0 }}>Registrar Pago</button>
-                </div>
-              )}
-
-              <div style={{ display: 'flex', gap: '20px', padding: '10px 0', borderTop: '1px solid #e2e8f0', marginTop: '10px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input type="checkbox" className="filled-in" checked={formData.notifyEmail} onChange={e => setFormData({...formData, notifyEmail: e.target.checked})} />
-                  <span style={{ color: '#0f172a', fontWeight: 500, fontSize: '0.9rem' }}>📩 Notificar por Correo</span>
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input type="checkbox" className="filled-in" checked={formData.notifyWhatsApp} onChange={e => setFormData({...formData, notifyWhatsApp: e.target.checked})} />
-                  <span style={{ color: '#0f172a', fontWeight: 500, fontSize: '0.9rem' }}>💬 Notificar por WhatsApp</span>
-                </label>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '24px' }}>
-                {editingId ? (
-                   <button type="button" onClick={() => handleDelete(editingId)} className="btn-flat" style={{ color: '#ef4444', padding: '0', fontWeight: 600, border: 'none', background: 'transparent', cursor: 'pointer' }}>Eliminar Cita</button>
-                ) : <div></div>}
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <button type="button" onClick={() => setIsModalOpen(false)} style={{ padding: '0 20px', height: '44px', backgroundColor: '#ffffff', border: '1px solid #cbd5e1', color: '#475569', borderRadius: '8px', fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer', transition: 'all 0.2s' }} onMouseOver={(e) => e.target.style.backgroundColor = '#f8fafc'} onMouseOut={(e) => e.target.style.backgroundColor = '#ffffff'}>
-                    Cancelar
-                  </button>
-                  <button type="submit" style={{ padding: '0 24px', height: '44px', backgroundColor: '#10b981', border: 'none', color: '#ffffff', borderRadius: '8px', fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.2)', transition: 'all 0.2s' }} onMouseOver={(e) => e.target.style.backgroundColor = '#059669'} onMouseOut={(e) => e.target.style.backgroundColor = '#10b981'}>
-                    Guardar Cita
-                  </button>
-                </div>
+                <button type="button" className="modern-btn-outline" onClick={() => setIsModalOpen(false)}>Cancelar</button>
+                <button type="submit" className="modern-btn-small">
+                   {editingId ? 'Actualizar' : 'Agendar'}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Modal: Seleccionar Método de Pago */}
+      {/* Luxury Modal: Seleccionar Método de Pago */}
       {pagoModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-          <div className="card-panel" style={{ width: '100%', maxWidth: '400px', borderRadius: '16px', padding: '24px' }}>
-            <h5 style={{ marginTop: 0, marginBottom: '20px', fontWeight: 700, color: '#0f172a' }}>Método de Pago</h5>
-            <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '16px' }}>Selecciona cómo el cliente realizará el pago para la cita: <strong>{pagoModal.serviceName}</strong></p>
+        <div className="luxury-modal-overlay">
+          <div className="luxury-modal-container" style={{ maxWidth: '400px' }}>
+            <div className="luxury-modal-header">
+              <h5 style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>Método de Pago</h5>
+              <button onClick={() => { setPagoModal(null); setIsModalOpen(true); }} className="btn-flat" style={{ padding: 0 }}>
+                <X size={24} color="#94a3b8" />
+              </button>
+            </div>
             
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '24px' }}>
-              {METODOS_PAGO.map(m => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setMetodoPagoSeleccionado(m)}
-                  style={{
-                    padding: '12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '0.95rem',
-                    border: '2px solid', textAlign: 'left',
-                    borderColor: metodoPagoSeleccionado === m ? '#059669' : '#e2e8f0',
-                    backgroundColor: metodoPagoSeleccionado === m ? '#f0fdf4' : 'white',
-                    color: metodoPagoSeleccionado === m ? '#059669' : '#475569',
-                    transition: 'all 0.15s'
-                  }}>
-                  {m === 'efectivo' ? '💵 Efectivo' : m === 'transferencia' ? '🏦 Transferencia' : '💳 Tarjeta / Datáfono'}
-                </button>
-              ))}
+            <div className="luxury-modal-body">
+              <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '16px' }}>Selecciona cómo el cliente realizará el pago para la cita: <strong>{pagoModal.serviceName}</strong></p>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {METODOS_PAGO.map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMetodoPagoSeleccionado(m)}
+                    style={{
+                      padding: '15px', borderRadius: '12px', cursor: 'pointer', fontWeight: 600, fontSize: '1rem',
+                      border: '2px solid', textAlign: 'left',
+                      borderColor: metodoPagoSeleccionado === m ? 'var(--spa-gold)' : '#e2e8f0',
+                      backgroundColor: metodoPagoSeleccionado === m ? 'rgba(197, 160, 89, 0.05)' : 'white',
+                      color: metodoPagoSeleccionado === m ? 'var(--spa-gold)' : '#475569',
+                      transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '12px'
+                    }}>
+                    <span style={{ fontSize: '1.4rem' }}>{m === 'efectivo' ? '💵' : m === 'transferencia' ? '🏦' : '💳'}</span>
+                    {m.charAt(0).toUpperCase() + m.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+            <div className="luxury-modal-footer">
               <button className="modern-btn-outline" onClick={() => { setPagoModal(null); setIsModalOpen(true); }}>Atrás</button>
               <button className="modern-btn-small" onClick={handleConfirmarPagoMethod}>Continuar a Firma</button>
             </div>
